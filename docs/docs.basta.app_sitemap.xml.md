@@ -1,0 +1,6 @@
+---
+url: "https://docs.basta.app/sitemap.xml"
+title: undefined
+---
+
+https://docs.basta.apphttps://docs.basta.app/getting-started-with-bastahttps://docs.basta.app/api-accesshttps://docs.basta.app/api-overviewhttps://docs.basta.app/walkthroughshttps://docs.basta.app/glossaryhttps://docs.basta.app/sdkshttps://docs.basta.app/webhookshttps://docs.basta.app/api-overview/management-apihttps://docs.basta.app/api-overview/client-apihttps://docs.basta.app/api-overview/graphql-subscriptions-(websockets)https://docs.basta.app/walkthroughs/create-your-first-auctionhttps://docs.basta.app/glossary/startingbidhttps://docs.basta.app/glossary/bid-increment-tablehttps://docs.basta.app/glossary/nextaskshttps://docs.basta.app/glossary/reservehttps://docs.basta.app/glossary/bid-typeshttps://docs.basta.app/glossary/closingmethodhttps://docs.basta.app/glossary/closingtimecountdownhttps://docs.basta.app/sdks/subscriptionshttps://docs.basta.app/webhooks/authenticating-webhook-payloadshttps://docs.basta.app/api-overview/graphql-subscriptions-(websockets)/saleactivity(saleid-itemidfilter)

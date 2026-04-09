@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# backend
+/backend/dist
+
+# implementation docs
+# LIVE_AUCTIONS_PLATFORM_OVERVIEW.md
+# LIVE_AUCTIONS_IMPLEMENTATION_GUIDE.md
