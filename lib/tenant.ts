@@ -6,7 +6,10 @@ export interface Tenant {
   name: string;
   description: string | null;
   logo_url: string | null;
+  hero_image_url: string | null;
   brand_colors: Record<string, string>;
+  font_display: string;
+  font_mono: string;
 }
 
 const cache = new Map<string, { tenant: Tenant; expiresAt: number }>();
@@ -24,7 +27,9 @@ export async function getTenantBySlug(
 
   const { data, error } = await supabase
     .from("tenants")
-    .select("id, slug, name, description, logo_url, brand_colors")
+    .select(
+      "id, slug, name, description, logo_url, hero_image_url, brand_colors, font_display, font_mono"
+    )
     .eq("slug", slug)
     .single();
 
