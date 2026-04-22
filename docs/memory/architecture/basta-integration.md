@@ -10,16 +10,16 @@ How our platform talks to Basta (`basta.app`), the headless bidding engine. Bast
 
 **Client API** (frontend, authenticated with bidder token):
 - `bidOnItem(saleId, itemId, amount, type: MAX)` — live as of M1. See [`lib/basta/client.ts`](../../../lib/basta/client.ts).
+- Subscriptions (WebSocket): `itemUpdates` / `saleUpdates` via graphql-ws. See [`lib/basta/ws.ts`](../../../lib/basta/ws.ts).
 
 **Backend helper:**
 - `GET /api/basta/bid-support/:lotId` → `{ saleId, itemId, allowedBidTypes, bidIncrementTable, closingTimeCountdownMs, startingBidCents, auctionStatus }`. See [`backend/src/routes/basta-bid-support.ts`](../../../backend/src/routes/basta-bid-support.ts).
+- `GET /api/auctions/:auctionId/current-state` → one-shot hydration for the buyer live screen: full auction (status, currentLotId, bidIncrementTable, closingTimeCountdownMs, …) + full lots + recent bids per lot (with display names). Frontend calls on mount then switches to Supabase Realtime + Basta Client-API WS for deltas. Drafts 404. See [`backend/src/routes/auction-current-state.ts`](../../../backend/src/routes/auction-current-state.ts).
 
 **Webhooks** (Basta → our backend):
 - `POST /api/webhooks/basta` handles `BidOnItem`, `SaleStatusChanged`, `ItemsStatusChanged` with idempotency (PK on `webhook_events.idempotency_key`). See [`backend/src/routes/webhooks/basta.ts`](../../../backend/src/routes/webhooks/basta.ts) and handlers under [`backend/src/lib/webhook-handlers/`](../../../backend/src/lib/webhook-handlers/). Wired as of M2.
 
 **Not yet wired** (as of 2026-04-21):
-- `NORMAL` bid placement (M3 live buyer screen will use it).
-- WebSocket subscriptions (`itemUpdates`/`saleUpdates`) — M3.
 - Webhook signature verification — blocked on Basta (Q5 in `basta-questions.md`). Currently using an optional shared-secret header `x-basta-secret` gated by `BASTA_WEBHOOK_SECRET` env var.
 - Close-item-now / pause-sale primitives — filed as open questions to Basta.
 
@@ -90,6 +90,15 @@ Idempotency is a hard contract: `webhook_events.idempotency_key` is the PK, so a
 
 Shared-secret gating: if `BASTA_WEBHOOK_SECRET` is set, the handler requires header `x-basta-secret` to match. This is a stopgap until Q5 (real signature spec) is answered.
 
+## Live buyer screen (M3)
+
+Mobile-first live bidding page at [`app/auctions/[auctionId]/live/page.tsx`](../../../app/auctions/[auctionId]/live/page.tsx) (server component; tenant-guarded load of auction + lots) and [`app/auctions/[auctionId]/live/view.tsx`](../../../app/auctions/[auctionId]/live/view.tsx) (client). Real-time state comes from two sources:
+
+- **Basta `saleUpdates(saleId)`** via [`lib/basta/ws.ts`](../../../lib/basta/ws.ts) + [`lib/hooks/use-sale-activity.ts`](../../../lib/hooks/use-sale-activity.ts) — keyed `Map<itemId, SaleUpdatePayload>` with `currentBid, bidCount, timeRemaining, status`. Bidder token refreshed per `connection_init`.
+- **Supabase Realtime** on `bids` joined with `profiles.display_name` via [`lib/hooks/use-bid-feed.ts`](../../../lib/hooks/use-bid-feed.ts) — scoped by `lotId`, seeded with 50 newest, INSERT-subscribed. "Anonymous" fallback when display_name is null.
+
+Bids placed via `bidOnItem({ type: "NORMAL" })` (one-tap + custom amount) through [`lib/basta/client.ts`](../../../lib/basta/client.ts). Unauthenticated taps open `<AuthModal>`. `iAmLeader` derived client-side as `bids[0].userId === user.id`.
+
 ## The full Basta surface (what we'll add)
 
 ### Management API (backend, server-to-server)
@@ -104,10 +113,11 @@ Shared-secret gating: if `BASTA_WEBHOOK_SECRET` is set, the handler requires hea
 - [ ] `updateItem` / `updateSale` — **unknown if exists**. Needed for mid-auction edits + possibly to close-item-now. Filed in [risks/basta-questions.md](../risks/basta-questions.md).
 
 ### Client API (frontend + backend both)
-- [x] `bidOnItem(saleId, itemId, amount, type: MAX)` — M1. MAX done; NORMAL in M3.
-- [ ] `sale(saleId)` and `item(saleId, itemId)` public reads — M3 possibly for initial hydration.
-- [ ] `itemUpdates(saleId, itemId)` subscription — M3. Returns `currentBid, bidCount, timeRemaining, status, myBidStatus`.
-- [ ] `saleUpdates(saleId)` subscription — M3.
+- [x] `bidOnItem(saleId, itemId, amount, type: MAX)` — M1. MAX via `MaxBidSection`.
+- [x] `bidOnItem(saleId, itemId, amount, type: NORMAL)` — M3. One-tap BID button + custom-bid input on the live buyer screen.
+- [ ] `sale(saleId)` and `item(saleId, itemId)` public reads — skipped in M3 (initial hydration comes from Supabase via the backend `/api/auctions/:id/current-state` endpoint). Revisit if we need cross-tenant public reads.
+- [x] `itemUpdates(saleId, itemId)` subscription — M3. Returns `currentBid, bidCount, timeRemaining, status, myBidStatus`. Wired via [`lib/basta/ws.ts`](../../../lib/basta/ws.ts) + [`lib/hooks/use-sale-activity.ts`](../../../lib/hooks/use-sale-activity.ts).
+- [x] `saleUpdates(saleId)` subscription — M3.
 
 ### Webhooks (Basta → our backend)
 - [x] `BidOnItem` — M2. Upserts to `bids` table (PK=Basta bidId). Reactive bids land as separate rows with `reactive=true`.
@@ -199,4 +209,4 @@ Cross-reference: [GAP_ANALYSIS_AND_PLAN.md Appendix A](../../../GAP_ANALYSIS_AND
 
 ---
 
-_Last verified: 2026-04-21 (M2 shipped — webhook ingestion wired; all three event types smoke-tested against live backend with real BASA sale/item IDs)._
+_Last verified: 2026-04-22 (M3 shipped — live buyer screen + WS subscriptions + NORMAL bidOnItem wired)._

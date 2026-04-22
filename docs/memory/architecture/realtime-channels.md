@@ -9,14 +9,14 @@ Two real-time systems in play. Each owns a distinct slice. Never mix them.
 - Auth: bidder token in `connection_init.payload.token`.
 - What it carries: current bid, bid count, item status transitions (OPEN/CLOSING/CLOSED), countdown/timeRemaining, `myBidStatus` (per-user via JWT).
 - Who owns the state: **Basta**. We read-only.
-- When we'll wire it: M3.
+- Status: **wired in M3**. Client in [`lib/basta/ws.ts`](../../../lib/basta/ws.ts); consumed via [`lib/hooks/use-sale-activity.ts`](../../../lib/hooks/use-sale-activity.ts). Token auto-refresh on reconnect via the bidder-token endpoint.
 
 ### 2. Supabase Realtime — platform orchestration
 - Endpoint: same Supabase instance (`fkatfnvscuvfejhdblks.supabase.co`).
 - Auth: Supabase session.
 - What it carries: lot transitions the seller drives (advance current lot, pause, end), buyer questions, bid feed with display names (lifted from webhooks into our `bids` table).
 - Who owns the state: **us** (our Postgres). Basta doesn't know about this channel.
-- Tables currently on the Realtime publication: `auctions`, `lots`, `auction_questions`. Will add `bids` in M2.
+- Tables currently on the Realtime publication: `auctions`, `lots`, `bids`, `auction_questions` (verified via `pg_publication_tables` 2026-04-21).
 
 ## Why two systems
 
@@ -29,8 +29,12 @@ Basta's bid state updates faster than our webhook-then-Supabase-Realtime round-t
 | Channel | Backed by | Payload | Purpose | Milestone |
 |---|---|---|---|---|
 | `auction:<id>:state` | `auctions` row changes | `{ current_lot_id, status, went_live_at, ended_at }` | Buyer live screen reacts to seller-advance and END AUCTION | M4 |
-| `bids:<auction_id>` | `bids` rows (filtered) | `{ lot_id, buyer_display_name, amount_cents, placed_at }` | Live bid feed with names | M2 |
+| `bids:<auction_id>` | `bids` rows (filtered) | `{ lot_id, buyer_display_name, amount_cents, placed_at }` | Live bid feed with names | M2 (consumed in M3 via [`lib/hooks/use-bid-feed.ts`](../../../lib/hooks/use-bid-feed.ts)) |
 | `auction_questions:<auction_id>` | `auction_questions` rows (filtered) | `{ id, user_display_name, question_text, created_at, dismissed }` | Seller console questions panel | M7 |
+
+## Hydration before subscribing (M3)
+
+Realtime is delta-only — no initial snapshot. The buyer live screen hits `GET /api/auctions/:auctionId/current-state` on mount to get the initial picture (auction status, current_lot_id, all lots in order, last 20 bids per lot, bid_increment_table, closing_time_countdown_ms, basta_sale_id) and *then* opens the Supabase Realtime + Basta WS subscriptions for deltas. See [`backend/src/routes/auction-current-state.ts`](../../../backend/src/routes/auction-current-state.ts). Draft auctions return 404 (no data leak).
 
 ## Subscribing pattern
 
@@ -71,4 +75,4 @@ These are rough. Measure in M3/M4.
 
 ---
 
-_Last verified: 2026-04-21_
+_Last verified: 2026-04-21 (M3 in progress — Basta WS wired via `lib/basta/ws.ts`; `bids` Realtime consumed via `lib/hooks/use-bid-feed.ts`)._

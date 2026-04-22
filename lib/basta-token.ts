@@ -29,3 +29,7 @@ export async function getBastaToken(
 
   return cached.token;
 }
+
+export function invalidateBastaTokenCache(): void {
+  cached = null;
+}
