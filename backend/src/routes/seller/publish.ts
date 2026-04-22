@@ -34,6 +34,8 @@ const defaultBidIncrementTable = [
   { lowRange: 100_000, highRange: 5_000_000, step: 10_000 },
 ];
 
+const defaultClosingTimeCountdownMs = 30_000;
+
 function mapLotToCreateItemInput(
   lot: LotRow,
   saleId: string,
@@ -48,6 +50,9 @@ function mapLotToCreateItemInput(
     reserve: lot.reserve ?? 0,
     openDate: openDate.toISOString(),
     closingDate: closingDate.toISOString(),
+    // Both flows enabled: storefront MaxBidSection uses MAX (pre-auction proxy),
+    // buyer live screen tap-to-bid uses NORMAL (single increment over current).
+    allowedBidTypes: ["MAX", "NORMAL"],
   };
 }
 
@@ -167,15 +172,23 @@ export async function sellerPublishRoutes(fastify: FastifyInstance) {
             const sale = await createSale({
               title: auction.title,
               description: auction.description ?? "",
-              closingTimeCountdown: 30_000,
+              closingTimeCountdown: defaultClosingTimeCountdownMs,
               bidIncrementTable: defaultBidIncrementTable,
             });
 
             saleId = sale.id;
 
+            // Persist the Basta sale id AND mirror the increment table +
+            // countdown locally so the live buyer screen and bid-support
+            // endpoint can render/validate without an extra Basta round-trip.
+            // See docs/memory/architecture/basta-integration.md.
             const { error: updateSaleError } = await supabaseAdmin
               .from("auctions")
-              .update({ basta_sale_id: saleId })
+              .update({
+                basta_sale_id: saleId,
+                bid_increment_table: defaultBidIncrementTable,
+                closing_time_countdown_ms: defaultClosingTimeCountdownMs,
+              })
               .eq("id", auction.id)
               .eq("tenant_id", seller.tenantId);
 

@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { healthRoutes } from "./routes/health.js";
 import { bastaTokenRoutes } from "./routes/basta-token.js";
+import { bastaBidSupportRoutes } from "./routes/basta-bid-support.js";
 import { sellerRoutes } from "./routes/seller/index.js";
 import { sellerOnboardingRoutes } from "./routes/seller-onboarding.js";
 import { config } from "./config.js";
@@ -28,6 +29,7 @@ async function start() {
 
   await fastify.register(healthRoutes);
   await fastify.register(bastaTokenRoutes);
+  await fastify.register(bastaBidSupportRoutes);
   await fastify.register(sellerRoutes);
   await fastify.register(sellerOnboardingRoutes);
 

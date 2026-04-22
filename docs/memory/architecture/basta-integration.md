@@ -2,17 +2,59 @@
 
 How our platform talks to Basta (`basta.app`), the headless bidding engine. Basta owns all bidding/sale lifecycle/bid state; our platform owns everything else (identity, ordering, seller UI, payments, media, ...).
 
-## Today's integration surface (very thin)
+## Today's integration surface
 
-Only three Management API mutations are wired:
+**Management API** (backend, server-to-server):
 - `createBidderToken(userId, ttl)` — mints a JWT for a platform user to use the Client API. See [`backend/src/routes/basta-token.ts`](../../../backend/src/routes/basta-token.ts).
-- `createSale(title, description, currency, closingMethod, closingTimeCountdown, bidIncrementTable)` — called from our seller `/api/seller/auctions/:id/publish`.
-- `createItemForSale(saleId, title, description, startingBid, reserve, openDate, closingDate)` — called per-lot during publish.
-- `publishSale(saleId)` — transitions sale to `PUBLISHED`.
+- `createSale(...)`, `createItemForSale(..., allowedBidTypes: [MAX, NORMAL])`, `publishSale(saleId)` — seller publish flow. See [`backend/src/routes/seller/publish.ts`](../../../backend/src/routes/seller/publish.ts).
 
-See [`backend/src/lib/basta.ts`](../../../backend/src/lib/basta.ts) for the GraphQL client and typed wrappers.
+**Client API** (frontend, authenticated with bidder token):
+- `bidOnItem(saleId, itemId, amount, type: MAX)` — live as of M1. See [`lib/basta/client.ts`](../../../lib/basta/client.ts).
 
-**That's it.** Nothing else is integrated as of 2026-04-21. No webhooks, no WebSocket subscriptions, no Client API reads, no bid placement. The `MaxBidSection` UI component pretends to place bids but only sets local state — real wiring comes in M1.
+**Backend helper:**
+- `GET /api/basta/bid-support/:lotId` → `{ saleId, itemId, allowedBidTypes, bidIncrementTable, closingTimeCountdownMs, startingBidCents, auctionStatus }`. See [`backend/src/routes/basta-bid-support.ts`](../../../backend/src/routes/basta-bid-support.ts).
+
+**Not yet wired** (as of 2026-04-21):
+- `NORMAL` bid placement (M3 live buyer screen will use it).
+- WebSocket subscriptions (`itemUpdates`/`saleUpdates`) — M3.
+- Webhooks (`BidOnItem`, `SaleStatusChanged`, `ItemsStatusChanged`) — M2.
+- Close-item-now / pause-sale primitives — filed as open questions to Basta.
+
+See [`backend/src/lib/basta.ts`](../../../backend/src/lib/basta.ts) for the backend GraphQL client and typed wrappers; [`lib/basta/client.ts`](../../../lib/basta/client.ts) for the frontend Client API wrapper.
+
+## Bid flow: buyer sets a MAX bid (M1)
+
+```
+Browser                     Our Fastify                Basta
+  |                              |                       |
+  | GET /api/basta/bid-support/  |                       |
+  |   :lotId                     |                       |
+  |----------------------------->|                       |
+  |                              | (Supabase SELECT:     |
+  |                              |  lots + auctions)     |
+  |<-- { saleId, itemId, table } |                       |
+  |                              |                       |
+  | POST /api/basta-token        |                       |
+  |   Bearer <supabase JWT>      |                       |
+  |----------------------------->|                       |
+  |                              | createBidderToken      |
+  |                              |---------------------->|
+  |                              |<------ { token, exp } |
+  |<-- { token, exp }            |                       |
+  |                              |                       |
+  | POST /graphql (client.api)   |                       |
+  |   Bearer <bidder JWT>        |                       |
+  |   bidOnItem(..., MAX)        |                       |
+  |------------------------------------------------------->
+  |<---------------------------- BidPlacedSuccess |       |
+  |          or BidPlacedError (errorCode)                |
+```
+
+Error-code handling (per Basta Client API ref):
+- `BID_TOO_LOW` → "Your bid is below the next increment."
+- `ITEM_CLOSED` → "This lot is no longer accepting bids."
+- `INVALID_TOKEN` / `UNAUTHORIZED` → force a fresh bidder token and retry once, then surface as "Your bidding session expired."
+- Unknown codes → fall back to Basta's `error` field (human-readable), or a generic message.
 
 ## The full Basta surface (what we'll add)
 
@@ -28,7 +70,7 @@ See [`backend/src/lib/basta.ts`](../../../backend/src/lib/basta.ts) for the Grap
 - [ ] `updateItem` / `updateSale` — **unknown if exists**. Needed for mid-auction edits + possibly to close-item-now. Filed in [risks/basta-questions.md](../risks/basta-questions.md).
 
 ### Client API (frontend + backend both)
-- [ ] `bidOnItem(saleId, itemId, amount, type)` — M1 for MAX, M3 for NORMAL.
+- [x] `bidOnItem(saleId, itemId, amount, type: MAX)` — M1. MAX done; NORMAL in M3.
 - [ ] `sale(saleId)` and `item(saleId, itemId)` public reads — M3 possibly for initial hydration.
 - [ ] `itemUpdates(saleId, itemId)` subscription — M3. Returns `currentBid, bidCount, timeRemaining, status, myBidStatus`.
 - [ ] `saleUpdates(saleId)` subscription — M3.
@@ -50,7 +92,7 @@ Our UI uses both:
 - "Set max bid" pre-auction and "Set max bid" on the live page → `type: MAX`.
 - One-tap "BID $X" live button + custom-bid input → `type: NORMAL`.
 
-`allowedBidTypes: [MAX, NORMAL]` should be set on every item at `createItemForSale` time (currently **omitted** — fix in M1).
+`allowedBidTypes: [MAX, NORMAL]` is set on every item at `createItemForSale` time as of M1.
 
 ## Sale lifecycle
 
@@ -83,7 +125,7 @@ const defaultBidIncrementTable = [
 ];
 ```
 
-All values in cents. M1 will mirror this onto `auctions.bid_increment_table jsonb` so the client can compute next valid bid without another Basta round-trip.
+All values in cents. As of M1 this is mirrored onto `auctions.bid_increment_table jsonb` at publish time (and surfaced via `/api/basta/bid-support/:lotId`) so the client can compute next valid bid without another Basta round-trip. `auctions.closing_time_countdown_ms` is mirrored alongside.
 
 ## Closing cadence
 
@@ -106,7 +148,9 @@ Backend needs:
 - `BASTA_BIDDER_TOKEN_TTL_MINUTES` — defaults to 60.
 - `BASTA_LOT_DURATION_MS` — defaults to 120_000.
 
-Client-side (for M1+): `NEXT_PUBLIC_BASTA_CLIENT_URL` — `https://client.api.basta.app/graphql`. `NEXT_PUBLIC_BASTA_WS_URL` — `wss://client.api.basta.app/query`. Not yet set.
+Client-side (used by M1 `bidOnItem` call + future M3 WebSocket):
+- `NEXT_PUBLIC_BASTA_CLIENT_URL` — `https://client.api.basta.app/graphql` (default in `lib/basta/client.ts`).
+- `NEXT_PUBLIC_BASTA_WS_URL` — `wss://client.api.basta.app/query` (set in `.env.example`; wired in M3).
 
 ## Open unknowns
 
@@ -121,4 +165,4 @@ Cross-reference: [GAP_ANALYSIS_AND_PLAN.md Appendix A](../../../GAP_ANALYSIS_AND
 
 ---
 
-_Last verified: 2026-04-21_
+_Last verified: 2026-04-21 (M1 shipped — buyer MAX bid path wired end-to-end)._

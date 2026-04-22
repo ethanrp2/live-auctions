@@ -2,6 +2,19 @@
 
 Email these to Basta support at the start of M1. Most answers unblock M4 (seller console). Until then, we design around the unknowns (see [architecture/basta-integration.md](../architecture/basta-integration.md) for current assumptions).
 
+## Docs check (2026-04-21)
+
+Cross-checked all 10 questions against the full Basta skill reference (`management_api.md`, `client_api.md`, `webhooks.md`, `glossary.md`):
+
+- **Q1–Q4, Q8**: Mutations not listed in the Management API reference. That reference enumerates exactly 8 mutations (`createSale`, `createItem`, `addItemToSale`, `createItemForSale`, `removeItemFromSale`, `publishSale`, `createBidderToken`) plus `bidOnItem` on the Client API. No `closeItem`, `updateItem`, `updateSale`, `pauseSale`, or token-revocation mutation exists in the public reference. These are genuine unknowns — need Basta to confirm whether they exist undocumented or need to be built around.
+- **Q5 (webhook signature)**: `webhooks.md` explicitly defers to an "authenticating webhook payloads documentation" that isn't in the public reference we have access to. Genuine unknown.
+- **Q6 (webhook source IPs)**: `webhooks.md` says "Check source IP if possible" but doesn't publish a list. Genuine unknown.
+- **Q7 (bidder identity in real-time feed)**: **Partially resolved.** The `BidOnItem` webhook payload DOES include `userId` (and `saleState.newLeader`, `prevLeader`). That covers our "live bid feed with names" use case, just with one extra hop (Basta → our webhook → Supabase Realtime → client). Remaining question is whether there's a *subscription* that includes bidder userId too (for <500ms latency instead of ~800ms) — this is a latency optimization, not a feature blocker. Downgraded in importance.
+- **Q9 (multi-tenant account model)**: Commercial question; not a technical doc issue.
+- **Q10 (rate limits)**: Docs say "Use batch operations where possible" / "Cache query results appropriately" without concrete numbers. Genuine unknown.
+
+**Conclusion:** 9 of 10 questions remain genuinely open. Q7 is downgraded to an optimization ask. Sending the email as-is is the right call.
+
 ## Open
 
 ### Q1. Close-item-now primitive?
@@ -52,13 +65,13 @@ Email these to Basta support at the start of M1. Most answers unblock M4 (seller
 **Opened:** 2026-04-21.
 **Status:** Open.
 
-### Q7. Subscription stream with bidder `userId`?
-**Risk:** `itemUpdates` / `saleUpdates` include `currentBid`, `bidCount`, `myBidStatus` — but don't seem to include who just bid. We plan to feed the bid history from our own `bids` table (via webhook). That adds ~400ms latency. If there's a subscription that includes bidder userId, we can use it directly.
+### Q7. Subscription stream with bidder `userId`? (downgraded)
+**Risk:** `itemUpdates` / `saleUpdates` include `currentBid`, `bidCount`, `myBidStatus` — but don't seem to include who just bid. Good news: the `BidOnItem` webhook payload DOES include `userId` + `saleState.newLeader/prevLeader` (confirmed in `webhooks.md`), so our M3 bid feed will work by piping webhook → Supabase Realtime → client. Remaining ask is a pure latency optimization: is there a subscription-level signal that would let us skip the webhook round-trip?
 **Owner:** Basta support.
 **Trigger:** Reply to Q7.
-**Blocks:** M3 bid feed latency (not the feature).
+**Blocks:** Nothing. M3 bid feed ships either way.
 **Opened:** 2026-04-21.
-**Status:** Open.
+**Status:** Open (downgraded to optimization).
 
 ### Q8. Bidder-token revocation?
 **Risk:** For pause or security incidents, we may need to invalidate a bidder's token before TTL. No documented mechanism.

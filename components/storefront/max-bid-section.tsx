@@ -2,8 +2,14 @@
 
 import { useState } from "react";
 import { formatMoneyCents, parseDollarsToCents } from "@/lib/format";
+import { useUser } from "@/lib/hooks/use-user";
+import { getBastaToken } from "@/lib/basta-token";
+import { fetchBidSupport } from "@/lib/basta/bid-support";
+import { bidOnItem, bidErrorMessage } from "@/lib/basta/client";
 
 interface MaxBidSectionProps {
+  /** Lot UUID — used to resolve Basta saleId + itemId via bid-support endpoint. */
+  lotId: string;
   /** Starting bid in integer cents. See docs/memory/architecture/money-units.md. */
   startingBid: number | null;
   onAuthRequired?: () => void;
@@ -30,19 +36,26 @@ function CheckIcon() {
   );
 }
 
+type BidState =
+  | { status: "idle" }
+  | { status: "submitting" }
+  | { status: "success"; amountCents: number }
+  | { status: "error"; message: string };
+
 export function MaxBidSection({
+  lotId,
   startingBid,
   onAuthRequired,
   isAuthenticated = false,
 }: MaxBidSectionProps) {
+  const { session } = useUser();
   const [bidAmount, setBidAmount] = useState("");
-  const [isConfirmed, setIsConfirmed] = useState(false);
-  /** Stored in integer cents. */
-  const [confirmedCents, setConfirmedCents] = useState<number | null>(null);
+  const [state, setState] = useState<BidState>({ status: "idle" });
 
-  const handleSetMaxBid = () => {
-    if (!isAuthenticated && onAuthRequired) {
-      onAuthRequired();
+  async function placeMaxBid() {
+    // Auth gate — the modal flow in <LotInfoPanel> drives this.
+    if (!isAuthenticated || !session?.access_token) {
+      if (onAuthRequired) onAuthRequired();
       return;
     }
 
@@ -50,42 +63,99 @@ export function MaxBidSection({
     try {
       cents = parseDollarsToCents(bidAmount);
     } catch {
+      setState({
+        status: "error",
+        message: "Enter a valid dollar amount.",
+      });
       return;
     }
-    if (cents <= 0) return;
+    if (cents <= 0) {
+      setState({ status: "error", message: "Bid must be greater than $0." });
+      return;
+    }
 
-    setConfirmedCents(cents);
-    setIsConfirmed(true);
-  };
+    setState({ status: "submitting" });
 
-  const handleCancel = () => {
-    setIsConfirmed(false);
-    setConfirmedCents(null);
+    try {
+      // 1. Resolve Basta saleId/itemId via our backend helper.
+      const support = await fetchBidSupport(lotId);
+
+      // 2. Mint (or reuse cached) Basta bidder token.
+      const bidderToken = await getBastaToken(session.access_token);
+
+      // 3. Fire bidOnItem(type: MAX). Token refresh-and-retry on expired token:
+      //    the token helper caches with a 5-minute buffer, so expiry is rare,
+      //    but we handle it defensively once.
+      let result = await bidOnItem({
+        bidderToken,
+        saleId: support.saleId,
+        itemId: support.itemId,
+        amount: cents,
+        type: "MAX",
+      });
+
+      if (
+        !result.ok &&
+        (result.errorCode === "INVALID_TOKEN" ||
+          result.errorCode === "UNAUTHORIZED")
+      ) {
+        // Force a fresh token and retry once.
+        const refreshed = await getBastaToken(session.access_token);
+        result = await bidOnItem({
+          bidderToken: refreshed,
+          saleId: support.saleId,
+          itemId: support.itemId,
+          amount: cents,
+          type: "MAX",
+        });
+      }
+
+      if (!result.ok) {
+        setState({
+          status: "error",
+          message: bidErrorMessage(result.errorCode, result.error),
+        });
+        return;
+      }
+
+      setState({ status: "success", amountCents: result.amount });
+    } catch (err) {
+      setState({
+        status: "error",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Could not place bid. Please try again.",
+      });
+    }
+  }
+
+  function resetBid() {
+    setState({ status: "idle" });
     setBidAmount("");
-  };
+  }
 
-  if (isConfirmed && confirmedCents !== null) {
+  // --- Success state: max bid placed ---
+  if (state.status === "success") {
     return (
       <div className="flex flex-col">
-        {/* Confirmed max bid bar */}
         <div className="flex h-[40px] items-center justify-between rounded bg-[#ededed] px-4">
           <span
             className="text-xs uppercase tracking-[-0.02em] text-black"
             style={{ fontFamily: "var(--storefront-font-mono)" }}
           >
-            YOUR MAX BID: {formatMoneyCents(confirmedCents)}
+            YOUR MAX BID: {formatMoneyCents(state.amountCents)}
           </span>
           <button
             type="button"
-            onClick={handleCancel}
+            onClick={resetBid}
             className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e] transition-colors hover:text-black"
             style={{ fontFamily: "var(--storefront-font-mono)" }}
           >
-            CANCEL
+            NEW BID
           </button>
         </div>
 
-        {/* Confirmed button */}
         <button
           type="button"
           disabled
@@ -107,6 +177,9 @@ export function MaxBidSection({
     );
   }
 
+  // --- Idle / submitting / error: input + CTA ---
+  const submitting = state.status === "submitting";
+
   return (
     <div className="flex flex-col">
       {/* Bid input */}
@@ -119,21 +192,26 @@ export function MaxBidSection({
           type="text"
           inputMode="numeric"
           value={bidAmount}
-          onChange={(e) => setBidAmount(e.target.value)}
+          onChange={(e) => {
+            setBidAmount(e.target.value);
+            if (state.status === "error") setState({ status: "idle" });
+          }}
           placeholder={
             startingBid != null
               ? String(Math.round(startingBid / 100))
               : "Enter max bid"
           }
           className="flex-1 bg-transparent text-sm tracking-[-0.02em] text-black outline-none placeholder:text-[#9c9c9c]"
+          disabled={submitting}
         />
       </div>
 
       {/* Set max bid button */}
       <button
         type="button"
-        onClick={handleSetMaxBid}
-        className="mt-2 flex h-[50px] items-center justify-center rounded-[2px] transition-opacity hover:opacity-90"
+        onClick={placeMaxBid}
+        disabled={submitting}
+        className="mt-2 flex h-[50px] items-center justify-center rounded-[2px] transition-opacity hover:opacity-90 disabled:opacity-60"
         style={{
           backgroundColor: "var(--storefront-primary)",
           color: "var(--storefront-badge-text)",
@@ -143,9 +221,20 @@ export function MaxBidSection({
           className="text-sm uppercase tracking-[-0.02em]"
           style={{ fontFamily: "var(--storefront-font-mono)" }}
         >
-          SET MAX BID
+          {submitting ? "PLACING BID…" : "SET MAX BID"}
         </span>
       </button>
+
+      {/* Error message */}
+      {state.status === "error" && (
+        <p
+          className="mt-2 text-center text-xs text-[#c11]"
+          style={{ fontFamily: "var(--storefront-font-mono)" }}
+          role="alert"
+        >
+          {state.message}
+        </p>
+      )}
 
       {/* Helper text */}
       <p

@@ -86,6 +86,8 @@ export interface CreateSaleInput {
   bidIncrementTable: BidIncrementRule[];
 }
 
+export type BastaBidType = "MAX" | "NORMAL";
+
 export interface CreateItemForSaleInput {
   saleId: string;
   title: string;
@@ -94,6 +96,8 @@ export interface CreateItemForSaleInput {
   reserve: number;
   openDate: string;
   closingDate: string;
+  /** Which bid types buyers may place on this item. Defaults to [MAX, NORMAL]. */
+  allowedBidTypes?: BastaBidType[];
 }
 
 export async function createBidderToken(userId: string, ttlMinutes: number) {
@@ -135,6 +139,7 @@ export async function createItemForSale(input: CreateItemForSaleInput) {
       reserve: input.reserve,
       openDate: input.openDate,
       closingDate: input.closingDate,
+      allowedBidTypes: input.allowedBidTypes ?? ["MAX", "NORMAL"],
     },
   });
 

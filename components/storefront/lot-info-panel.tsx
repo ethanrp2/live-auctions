@@ -59,6 +59,7 @@ export function LotInfoPanel({ lot, auction, isAuthenticated, lotIndex, totalLot
         {/* Max bid section — pinned at bottom */}
         <div className="shrink-0 p-5">
           <MaxBidSection
+            lotId={lot.id}
             startingBid={lot.starting_bid}
             isAuthenticated={isAuthenticated}
             onAuthRequired={handleAuthRequired}

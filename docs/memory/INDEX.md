@@ -26,7 +26,8 @@ Read [SCHEMA.md](SCHEMA.md) first if you're new here or haven't touched this in 
 
 ## Risks (open questions + external blockers)
 
-- [risks/basta-questions.md](risks/basta-questions.md) — 10 open questions to Basta support (close-item, pause, webhook signature, etc.).
+- [risks/basta-questions.md](risks/basta-questions.md) — 10 open questions to Basta support (close-item, pause, webhook signature, etc.). Includes a 2026-04-21 docs-check note.
+- [risks/basta-support-email-draft.md](risks/basta-support-email-draft.md) — sendable email bundling the 10 questions; cites which Basta docs we checked.
 - [risks/stripe-connect.md](risks/stripe-connect.md) — Stripe Connect onboarding + KYC timing.
 - [risks/twilio-a2p.md](risks/twilio-a2p.md) — A2P 10DLC brand/campaign registration for US SMS.
 - [risks/livekit-ios.md](risks/livekit-ios.md) — iOS Safari audio autoplay / tap-to-unmute UX.
@@ -37,4 +38,4 @@ Read [SCHEMA.md](SCHEMA.md) first if you're new here or haven't touched this in 
 
 ## Sessions (end-of-session handoffs — newest at top)
 
-- [sessions/2026-04-21.md](sessions/2026-04-21.md) — gap analysis + plan + memory seed + **M0 shipped** (money migration, format.ts cents API, env examples, bootstrap).
+- [sessions/2026-04-21.md](sessions/2026-04-21.md) — gap analysis + plan + memory seed + **M0 shipped** (money migration, format.ts cents API, env examples, bootstrap) + **M1 shipped** (real MAX-bid path: Basta Client API wrapper, bid-support endpoint, increment-table mirror, support-email draft).
