@@ -14,10 +14,13 @@ How our platform talks to Basta (`basta.app`), the headless bidding engine. Bast
 **Backend helper:**
 - `GET /api/basta/bid-support/:lotId` → `{ saleId, itemId, allowedBidTypes, bidIncrementTable, closingTimeCountdownMs, startingBidCents, auctionStatus }`. See [`backend/src/routes/basta-bid-support.ts`](../../../backend/src/routes/basta-bid-support.ts).
 
+**Webhooks** (Basta → our backend):
+- `POST /api/webhooks/basta` handles `BidOnItem`, `SaleStatusChanged`, `ItemsStatusChanged` with idempotency (PK on `webhook_events.idempotency_key`). See [`backend/src/routes/webhooks/basta.ts`](../../../backend/src/routes/webhooks/basta.ts) and handlers under [`backend/src/lib/webhook-handlers/`](../../../backend/src/lib/webhook-handlers/). Wired as of M2.
+
 **Not yet wired** (as of 2026-04-21):
 - `NORMAL` bid placement (M3 live buyer screen will use it).
 - WebSocket subscriptions (`itemUpdates`/`saleUpdates`) — M3.
-- Webhooks (`BidOnItem`, `SaleStatusChanged`, `ItemsStatusChanged`) — M2.
+- Webhook signature verification — blocked on Basta (Q5 in `basta-questions.md`). Currently using an optional shared-secret header `x-basta-secret` gated by `BASTA_WEBHOOK_SECRET` env var.
 - Close-item-now / pause-sale primitives — filed as open questions to Basta.
 
 See [`backend/src/lib/basta.ts`](../../../backend/src/lib/basta.ts) for the backend GraphQL client and typed wrappers; [`lib/basta/client.ts`](../../../lib/basta/client.ts) for the frontend Client API wrapper.
@@ -56,6 +59,37 @@ Error-code handling (per Basta Client API ref):
 - `INVALID_TOKEN` / `UNAUTHORIZED` → force a fresh bidder token and retry once, then surface as "Your bidding session expired."
 - Unknown codes → fall back to Basta's `error` field (human-readable), or a generic message.
 
+## Webhook flow: Basta → our backend (M2)
+
+```
+Basta                         Our Fastify                 Supabase
+  |                                |                         |
+  | POST /api/webhooks/basta       |                         |
+  |  { idempotencyKey,             |                         |
+  |    actionType, data }          |                         |
+  |------------------------------->|                         |
+  |                                | (optional secret check) |
+  |                                | INSERT webhook_events   |
+  |                                | (PK=idempotency_key)    |
+  |                                |------------------------>|
+  |                                |<--- 23505 = duplicate   |
+  |                                |                         |
+  |                                | dispatch handler:       |
+  |                                |  BidOnItem     -> bids  |
+  |                                |  SaleStatus    -> auc.  |
+  |                                |  ItemsStatus   -> lots  |
+  |                                |------------------------>|
+  |                                |                         |
+  |                                | UPDATE processed_at OR  |
+  |                                |        error message    |
+  |                                |------------------------>|
+  |<------------------ 200/500 ----|                         |
+```
+
+Idempotency is a hard contract: `webhook_events.idempotency_key` is the PK, so a redelivered event short-circuits at the INSERT (returns `{status: "duplicate"}` with 200). Failures return 500 so Basta retries. The audit row is kept either way — `processed_at IS NULL AND error IS NOT NULL` = retriable; `processed_at IS NOT NULL` = done.
+
+Shared-secret gating: if `BASTA_WEBHOOK_SECRET` is set, the handler requires header `x-basta-secret` to match. This is a stopgap until Q5 (real signature spec) is answered.
+
 ## The full Basta surface (what we'll add)
 
 ### Management API (backend, server-to-server)
@@ -76,10 +110,10 @@ Error-code handling (per Basta Client API ref):
 - [ ] `saleUpdates(saleId)` subscription — M3.
 
 ### Webhooks (Basta → our backend)
-- [ ] `BidOnItem` — M2. Upsert to `bids` table, join against `profiles` for displayable bid feed.
-- [ ] `SaleStatusChanged` — M2. Map to `auctions.status`.
-- [ ] `ItemsStatusChanged` — M2. Update `lots.live_status`.
-- [ ] Signature verification — **spec unknown**. Filed in risks.
+- [x] `BidOnItem` — M2. Upserts to `bids` table (PK=Basta bidId). Reactive bids land as separate rows with `reactive=true`.
+- [x] `SaleStatusChanged` — M2. Maps to `auctions.status` (UNPUBLISHED→draft, PUBLISHED→published, OPEN/CLOSING→live, CLOSED→ended) and stamps `went_live_at`/`ended_at`.
+- [x] `ItemsStatusChanged` — M2. Updates `lots.live_status` (UNPUBLISHED/PUBLISHED→upcoming, OPEN→live, CLOSING→closing, CLOSED→closed).
+- [ ] Signature verification — **spec unknown**. Filed in risks. Using shared-secret header as stopgap.
 
 ## Bid types
 
@@ -165,4 +199,4 @@ Cross-reference: [GAP_ANALYSIS_AND_PLAN.md Appendix A](../../../GAP_ANALYSIS_AND
 
 ---
 
-_Last verified: 2026-04-21 (M1 shipped — buyer MAX bid path wired end-to-end)._
+_Last verified: 2026-04-21 (M2 shipped — webhook ingestion wired; all three event types smoke-tested against live backend with real BASA sale/item IDs)._

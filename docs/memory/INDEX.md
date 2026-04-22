@@ -38,4 +38,4 @@ Read [SCHEMA.md](SCHEMA.md) first if you're new here or haven't touched this in 
 
 ## Sessions (end-of-session handoffs — newest at top)
 
-- [sessions/2026-04-21.md](sessions/2026-04-21.md) — gap analysis + plan + memory seed + **M0 shipped** (money migration, format.ts cents API, env examples, bootstrap) + **M1 shipped** (real MAX-bid path: Basta Client API wrapper, bid-support endpoint, increment-table mirror, support-email draft).
+- [sessions/2026-04-21.md](sessions/2026-04-21.md) — gap analysis + plan + memory seed + **M0 shipped** (money migration, format.ts cents API, env examples, bootstrap) + **M1 shipped** (real MAX-bid path: Basta Client API wrapper, bid-support endpoint, increment-table mirror, support-email draft) + **M2 shipped** (webhook ingestion: BidOnItem / SaleStatusChanged / ItemsStatusChanged with idempotency + audit trail, smoke-tested end-to-end).
