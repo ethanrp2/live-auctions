@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { StorefrontLot } from "@/lib/storefront-data";
-import { pad, formatMoney, formatEstimate } from "@/lib/format";
+import { pad, formatMoneyCents, formatEstimateCents } from "@/lib/format";
 
 interface LotCardProps {
   lot: StorefrontLot;
@@ -33,7 +33,7 @@ export function LotCard({ lot, index, total }: LotCardProps) {
               color: "var(--storefront-badge-text)",
             }}
           >
-            STARTS: {formatMoney(lot.starting_bid)}
+            STARTS: {formatMoneyCents(lot.starting_bid)}
           </span>
         </span>
       </header>
@@ -88,7 +88,7 @@ export function LotCard({ lot, index, total }: LotCardProps) {
               className="text-xs tracking-[-0.02em] text-[#5e5e5e]"
               style={{ fontFamily: "var(--storefront-font-mono)" }}
             >
-              EST: {formatEstimate(lot.estimate_low, lot.estimate_high)}
+              EST: {formatEstimateCents(lot.estimate_low, lot.estimate_high)}
             </p>
           </>
         )}

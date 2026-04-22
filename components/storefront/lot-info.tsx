@@ -1,5 +1,5 @@
 import type { StorefrontLotDetail } from "@/lib/storefront-data";
-import { formatEstimate, formatMoney, pad } from "@/lib/format";
+import { formatEstimateCents, formatMoneyCents, pad } from "@/lib/format";
 
 interface LotInfoProps {
   lot: StorefrontLotDetail;
@@ -46,12 +46,12 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
 }
 
 export function LotInfo({ lot, lotIndex, totalLots }: LotInfoProps) {
-  const estimate = formatEstimate(lot.estimate_low, lot.estimate_high);
+  const estimate = formatEstimateCents(lot.estimate_low, lot.estimate_high);
 
   // Build tag pills: brand tags + starts + estimate
   const pills: string[] = [...lot.tags];
   if (lot.starting_bid != null) {
-    pills.push(`STARTS: ${formatMoney(lot.starting_bid)}`);
+    pills.push(`STARTS: ${formatMoneyCents(lot.starting_bid)}`);
   }
   if (estimate !== "\u2014") {
     pills.push(`EST: ${estimate}`);

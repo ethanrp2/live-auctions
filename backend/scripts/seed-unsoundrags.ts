@@ -55,6 +55,7 @@ interface LotSeed {
   title: string;
   description: string;
   brand: string | null;
+  /** Dollars. Converted to cents before INSERT / Basta call (ADR-002). */
   starting_bid: number;
   estimate_low: number | null;
   estimate_high: number | null;
@@ -335,9 +336,9 @@ async function main() {
     title: lot.title,
     description: lot.description,
     images: [lotImageUrls[i]],
-    estimate_low: lot.estimate_low,
-    estimate_high: lot.estimate_high,
-    starting_bid: lot.starting_bid,
+    estimate_low: lot.estimate_low != null ? toCents(lot.estimate_low) : null,
+    estimate_high: lot.estimate_high != null ? toCents(lot.estimate_high) : null,
+    starting_bid: toCents(lot.starting_bid),
     reserve: 0,
     tags: lot.brand ? [lot.brand] : [],
     sort_order: i,

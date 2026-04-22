@@ -37,6 +37,7 @@ export interface LotRibbonItem {
   sort_order: number | null;
 }
 
+// All money values in cents (see docs/memory/architecture/money-units.md).
 const MOCK_AUCTION: StorefrontAuction = {
   id: "mock-auction",
   title: "February 80s-90s Vintage Tees",
@@ -48,15 +49,15 @@ const MOCK_AUCTION: StorefrontAuction = {
       "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600&h=800&fit=crop",
       "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=600&h=800&fit=crop",
       "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?w=600&h=800&fit=crop",
-    ], brand: null, estimate_low: 65, estimate_high: 65, starting_bid: 10, sort_order: 0 },
-    { id: "m2", title: "Misfits 'Crimson Ghost Faded Black S...", images: [], brand: null, estimate_low: 65, estimate_high: 65, starting_bid: 15, sort_order: 1 },
-    { id: "m3", title: "Thrashed Sistine Chapel T-Shirt", images: [], brand: null, estimate_low: 160, estimate_high: 160, starting_bid: 30, sort_order: 2 },
-    { id: "m4", title: "Led Zepellin Thrashed & Safety Pinne...", images: [], brand: null, estimate_low: 275, estimate_high: 275, starting_bid: 75, sort_order: 3 },
-    { id: "m5", title: "'Byte Me' T-Shirt", images: [], brand: null, estimate_low: 60, estimate_high: 60, starting_bid: 10, sort_order: 4 },
-    { id: "m6", title: "1991 New York Post T-Shirt", images: [], brand: null, estimate_low: 65, estimate_high: 65, starting_bid: 15, sort_order: 5 },
-    { id: "m7", title: "Cross Patch Denim Jacket", images: [], brand: "CHROME HEARTS", estimate_low: null, estimate_high: null, starting_bid: 80, sort_order: 6 },
-    { id: "m8", title: "Cross Patch Denim Jacket", images: [], brand: "CHROME HEARTS", estimate_low: null, estimate_high: null, starting_bid: 20, sort_order: 7 },
-    { id: "m9", title: "Cross Patch Denim Jacket", images: [], brand: "CHROME HEARTS", estimate_low: null, estimate_high: null, starting_bid: 25, sort_order: 8 },
+    ], brand: null, estimate_low: 6500, estimate_high: 6500, starting_bid: 1000, sort_order: 0 },
+    { id: "m2", title: "Misfits 'Crimson Ghost Faded Black S...", images: [], brand: null, estimate_low: 6500, estimate_high: 6500, starting_bid: 1500, sort_order: 1 },
+    { id: "m3", title: "Thrashed Sistine Chapel T-Shirt", images: [], brand: null, estimate_low: 16000, estimate_high: 16000, starting_bid: 3000, sort_order: 2 },
+    { id: "m4", title: "Led Zepellin Thrashed & Safety Pinne...", images: [], brand: null, estimate_low: 27500, estimate_high: 27500, starting_bid: 7500, sort_order: 3 },
+    { id: "m5", title: "'Byte Me' T-Shirt", images: [], brand: null, estimate_low: 6000, estimate_high: 6000, starting_bid: 1000, sort_order: 4 },
+    { id: "m6", title: "1991 New York Post T-Shirt", images: [], brand: null, estimate_low: 6500, estimate_high: 6500, starting_bid: 1500, sort_order: 5 },
+    { id: "m7", title: "Cross Patch Denim Jacket", images: [], brand: "CHROME HEARTS", estimate_low: null, estimate_high: null, starting_bid: 8000, sort_order: 6 },
+    { id: "m8", title: "Cross Patch Denim Jacket", images: [], brand: "CHROME HEARTS", estimate_low: null, estimate_high: null, starting_bid: 2000, sort_order: 7 },
+    { id: "m9", title: "Cross Patch Denim Jacket", images: [], brand: "CHROME HEARTS", estimate_low: null, estimate_high: null, starting_bid: 2500, sort_order: 8 },
   ],
 };
 
@@ -217,12 +218,14 @@ export async function getStorefrontAuction(
 ): Promise<{ auction: StorefrontAuction; isMock: boolean }> {
   const supabase = await createClient();
 
+  // Show the most relevant auction: a live one first, else the next published upcoming one.
+  // Mock fallback kicks in only if neither exists.
   const { data: auctionRow } = await supabase
     .from("auctions")
-    .select("id, title, description, scheduled_date")
+    .select("id, title, description, scheduled_date, status")
     .eq("tenant_id", tenantId)
-    .eq("status", "published")
-    .gte("scheduled_date", new Date().toISOString())
+    .in("status", ["live", "published"])
+    .order("status", { ascending: true }) // 'live' sorts before 'published' alphabetically
     .order("scheduled_date", { ascending: true })
     .limit(1)
     .maybeSingle();

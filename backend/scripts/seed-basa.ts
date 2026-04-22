@@ -47,12 +47,15 @@ interface LotSeed {
   item_location: string;
   shipping_terms: string;
   brand: string | null;
+  /** Dollars. Converted to cents before INSERT (ADR-002). */
   starting_bid: number;
   estimate_low: number | null;
   estimate_high: number | null;
   tags: string[];
   imageUrl: string;
 }
+
+const toCents = (dollars: number) => Math.round(dollars * 100);
 
 const LOTS: LotSeed[] = [
   {
@@ -398,9 +401,9 @@ async function main() {
     item_location: lot.item_location,
     shipping_terms: lot.shipping_terms,
     images: [lotImageUrls[i]],
-    estimate_low: lot.estimate_low,
-    estimate_high: lot.estimate_high,
-    starting_bid: lot.starting_bid,
+    estimate_low: lot.estimate_low != null ? toCents(lot.estimate_low) : null,
+    estimate_high: lot.estimate_high != null ? toCents(lot.estimate_high) : null,
+    starting_bid: toCents(lot.starting_bid),
     reserve: 0,
     tags: lot.brand ? [lot.brand] : lot.tags,
     sort_order: i,

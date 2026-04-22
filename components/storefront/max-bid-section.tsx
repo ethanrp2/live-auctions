@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { formatMoney } from "@/lib/format";
+import { formatMoneyCents, parseDollarsToCents } from "@/lib/format";
 
 interface MaxBidSectionProps {
+  /** Starting bid in integer cents. See docs/memory/architecture/money-units.md. */
   startingBid: number | null;
   onAuthRequired?: () => void;
   isAuthenticated?: boolean;
@@ -36,7 +37,8 @@ export function MaxBidSection({
 }: MaxBidSectionProps) {
   const [bidAmount, setBidAmount] = useState("");
   const [isConfirmed, setIsConfirmed] = useState(false);
-  const [confirmedAmount, setConfirmedAmount] = useState<number | null>(null);
+  /** Stored in integer cents. */
+  const [confirmedCents, setConfirmedCents] = useState<number | null>(null);
 
   const handleSetMaxBid = () => {
     if (!isAuthenticated && onAuthRequired) {
@@ -44,20 +46,25 @@ export function MaxBidSection({
       return;
     }
 
-    const amount = parseFloat(bidAmount.replace(/[^0-9.]/g, ""));
-    if (isNaN(amount) || amount <= 0) return;
+    let cents: number;
+    try {
+      cents = parseDollarsToCents(bidAmount);
+    } catch {
+      return;
+    }
+    if (cents <= 0) return;
 
-    setConfirmedAmount(amount);
+    setConfirmedCents(cents);
     setIsConfirmed(true);
   };
 
   const handleCancel = () => {
     setIsConfirmed(false);
-    setConfirmedAmount(null);
+    setConfirmedCents(null);
     setBidAmount("");
   };
 
-  if (isConfirmed && confirmedAmount !== null) {
+  if (isConfirmed && confirmedCents !== null) {
     return (
       <div className="flex flex-col">
         {/* Confirmed max bid bar */}
@@ -66,7 +73,7 @@ export function MaxBidSection({
             className="text-xs uppercase tracking-[-0.02em] text-black"
             style={{ fontFamily: "var(--storefront-font-mono)" }}
           >
-            YOUR MAX BID: {formatMoney(confirmedAmount)}
+            YOUR MAX BID: {formatMoneyCents(confirmedCents)}
           </span>
           <button
             type="button"
@@ -113,7 +120,11 @@ export function MaxBidSection({
           inputMode="numeric"
           value={bidAmount}
           onChange={(e) => setBidAmount(e.target.value)}
-          placeholder={startingBid != null ? String(startingBid) : "Enter max bid"}
+          placeholder={
+            startingBid != null
+              ? String(Math.round(startingBid / 100))
+              : "Enter max bid"
+          }
           className="flex-1 bg-transparent text-sm tracking-[-0.02em] text-black outline-none placeholder:text-[#9c9c9c]"
         />
       </div>
