@@ -124,7 +124,7 @@
 4. **Stripe env vars** — set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` in backend `.env`; set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in root `.env.local`. Register Stripe webhook endpoint pointing to `/api/webhooks/stripe`.
 5. **LiveKit env vars** — set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` in backend `.env`. Create a LiveKit Cloud project at livekit.io.
 6. **Twilio env vars** — set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` in backend `.env`. Complete A2P 10DLC registration in Twilio console before sending to US numbers.
-7. **M3/M4 browser smoke test** — test live buyer screen + seller console against a real open Basta sale.
+7. **M3/M4 browser smoke test** — test live buyer screen + seller console against a real open Basta sale. 2026-05-04 API-level BASA live flow passed; still do a human visual pass in a browser with two isolated sessions before launch.
 
 ---
 
@@ -182,3 +182,4 @@
 | 2026-05-03 | Doc consolidation | Merged frosty-feynman → festive-curie; wrote LIVE_AUCTIONS_PLAN.md + WORKING_NOTES.md; updated AGENTS.md; starting M4 |
 | 2026-05-03 | M4 complete | Seller console: 5 backend routes (console.ts) + page + hook + full desktop UI (view.tsx). Both typechecks clean. |
 | 2026-05-04 | M5–M8 complete | Seller CMS (list + editor), Stripe buyer account + webhook, LiveKit audio, Twilio SMS. Stripe API version fixed. step17 migration applied. Both typechecks clean (0 errors). |
+| 2026-05-04 | BASA E2E smoke | Created `Codex E2E BASA 2026-05-04T07-06-09-908Z`, published through seller API, placed a real Basta NORMAL bid as `codex-buyer@example.test`, posted equivalent localhost Basta webhook, sold lot as `codex-basa-seller@example.test`, and verified buyer order `df4cb48c-9e8e-40f1-8291-7a957ae6b69d`. Fixed Basta Client API schema drift: `bidOnItem` now uses `String!` IDs and no longer queries removed `bidType` field on success. |

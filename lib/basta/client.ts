@@ -46,7 +46,6 @@ interface BidOnItemResponse {
         amount: number;
         bidStatus: string;
         date: string;
-        bidType: BastaBidType;
       }
     | {
         __typename: "BidPlacedError";
@@ -57,8 +56,8 @@ interface BidOnItemResponse {
 
 const BID_ON_ITEM = /* GraphQL */ `
   mutation BidOnItem(
-    $saleId: ID!
-    $itemId: ID!
+    $saleId: String!
+    $itemId: String!
     $amount: Int!
     $type: BidType!
   ) {
@@ -68,7 +67,6 @@ const BID_ON_ITEM = /* GraphQL */ `
         amount
         bidStatus
         date
-        bidType
       }
       ... on BidPlacedError {
         errorCode
@@ -138,7 +136,7 @@ export async function bidOnItem(params: {
       amount: payload.amount,
       bidStatus: payload.bidStatus,
       date: payload.date,
-      bidType: payload.bidType,
+      bidType: params.type,
     };
   }
 
