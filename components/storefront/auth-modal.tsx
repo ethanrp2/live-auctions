@@ -1,13 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { ModalOverlay } from "./modal-overlay";
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onComplete: () => void;
+  onComplete?: () => void;
 }
+
+const OAUTH_ENABLED = process.env.NEXT_PUBLIC_ENABLE_OAUTH === "true";
 
 function GoogleIcon() {
   return (
@@ -43,89 +46,192 @@ function AppleIcon() {
   );
 }
 
+const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost";
+
+function platformOrigin(currentOrigin: string): string {
+  // Supabase validates emailRedirectTo against a single allow-list. To avoid
+  // needing every tenant subdomain allow-listed, always send the magic-link
+  // callback to the platform root (no subdomain) and use `next` to hop back
+  // to the tenant URL. Session cookies are scoped to `.${ROOT_DOMAIN}` so
+  // the browser carries them across subdomains.
+  try {
+    const url = new URL(currentOrigin);
+    const port = url.port ? `:${url.port}` : "";
+    return `${url.protocol}//${ROOT_DOMAIN}${port}`;
+  } catch {
+    return currentOrigin;
+  }
+}
+
+function buildRedirectUrl(currentHref: string): string {
+  if (typeof window === "undefined") return "/";
+  const origin = platformOrigin(window.location.origin);
+  const url = new URL("/auth/callback", origin);
+  url.searchParams.set("next", currentHref);
+  return url.toString();
+}
+
 export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
   const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
 
-  const handleContinue = (e: React.FormEvent) => {
+  const reset = () => {
+    setEmail("");
+    setError(null);
+    setSubmitting(false);
+    setSent(false);
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handleContinue = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email.trim()) {
-      onComplete();
+    const trimmed = email.trim();
+    if (!trimmed) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const supabase = createClient();
+      const currentHref =
+        typeof window !== "undefined" ? window.location.href : "/";
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: trimmed,
+        options: {
+          emailRedirectTo: buildRedirectUrl(currentHref),
+          shouldCreateUser: true,
+        },
+      });
+      if (otpError) {
+        setError(otpError.message);
+        setSubmitting(false);
+        return;
+      }
+      setSent(true);
+      onComplete?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setSubmitting(false);
     }
   };
 
+  const fontMono = { fontFamily: "var(--storefront-font-mono)" };
+  const fontDisplay = { fontFamily: "var(--storefront-font-display)" };
+
   return (
-    <ModalOverlay isOpen={isOpen} onClose={onClose}>
+    <ModalOverlay isOpen={isOpen} onClose={handleClose}>
       <div className="flex flex-col gap-5">
-        {/* Heading */}
         <h2
           className="text-center text-sm uppercase tracking-[-0.02em] text-black"
-          style={{ fontFamily: "var(--storefront-font-mono)" }}
+          style={fontMono}
         >
-          MUST BE SIGNED IN TO BID
+          {sent ? "CHECK YOUR EMAIL" : "MUST BE SIGNED IN TO BID"}
         </h2>
 
-        {/* OAuth buttons */}
-        <div className="flex flex-col gap-3">
-          <button
-            type="button"
-            className="flex h-[50px] items-center justify-center gap-3 rounded border border-[#f3f3f3] bg-white text-sm transition-colors hover:bg-[#f8f8f8]"
-            style={{ fontFamily: "var(--storefront-font-mono)" }}
-          >
-            <GoogleIcon />
-            <span className="uppercase tracking-[-0.02em]">CONTINUE WITH GOOGLE</span>
-          </button>
-          <button
-            type="button"
-            className="flex h-[50px] items-center justify-center gap-3 rounded bg-black text-sm text-white transition-opacity hover:opacity-90"
-            style={{ fontFamily: "var(--storefront-font-mono)" }}
-          >
-            <AppleIcon />
-            <span className="uppercase tracking-[-0.02em]">CONTINUE WITH APPLE</span>
-          </button>
-        </div>
-
-        {/* Divider */}
-        <div className="flex items-center gap-4">
-          <div className="h-px flex-1 bg-[#f3f3f3]" />
-          <span
-            className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e]"
-            style={{ fontFamily: "var(--storefront-font-mono)" }}
-          >
-            OR
-          </span>
-          <div className="h-px flex-1 bg-[#f3f3f3]" />
-        </div>
-
-        {/* Email form */}
-        <form onSubmit={handleContinue} className="flex flex-col gap-3">
-          <div className="relative">
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email address"
-              className="h-[50px] w-full rounded border border-[#bababa] bg-white px-4 text-sm text-black outline-none placeholder:text-[#9c9c9c] focus:border-black"
-              style={{ fontFamily: "var(--storefront-font-display)" }}
-            />
+        {sent ? (
+          <div className="flex flex-col gap-4">
+            <p
+              className="text-center text-sm leading-relaxed text-[#2a2a2a]"
+              style={fontDisplay}
+            >
+              We sent a sign-in link to{" "}
+              <span className="font-semibold">{email}</span>. Click it to return
+              here and bid.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setSent(false);
+                setEmail("");
+              }}
+              className="flex h-[40px] items-center justify-center rounded border border-[#f3f3f3] text-xs uppercase tracking-[-0.02em] text-black transition-colors hover:bg-[#f8f8f8]"
+              style={fontMono}
+            >
+              USE A DIFFERENT EMAIL
+            </button>
           </div>
-          <button
-            type="submit"
-            className="flex h-[50px] items-center justify-center rounded bg-black text-sm uppercase tracking-[-0.02em] text-white transition-opacity hover:opacity-90"
-            style={{ fontFamily: "var(--storefront-font-mono)" }}
-          >
-            CONTINUE
-          </button>
-        </form>
+        ) : (
+          <>
+            {OAUTH_ENABLED && (
+              <>
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    className="flex h-[50px] items-center justify-center gap-3 rounded border border-[#f3f3f3] bg-white text-sm transition-colors hover:bg-[#f8f8f8]"
+                    style={fontMono}
+                  >
+                    <GoogleIcon />
+                    <span className="uppercase tracking-[-0.02em]">CONTINUE WITH GOOGLE</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex h-[50px] items-center justify-center gap-3 rounded bg-black text-sm text-white transition-opacity hover:opacity-90"
+                    style={fontMono}
+                  >
+                    <AppleIcon />
+                    <span className="uppercase tracking-[-0.02em]">CONTINUE WITH APPLE</span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="h-px flex-1 bg-[#f3f3f3]" />
+                  <span
+                    className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e]"
+                    style={fontMono}
+                  >
+                    OR
+                  </span>
+                  <div className="h-px flex-1 bg-[#f3f3f3]" />
+                </div>
+              </>
+            )}
 
-        {/* Legal */}
-        <p
-          className="text-center text-xs leading-relaxed text-[#9c9c9c]"
-          style={{ fontFamily: "var(--storefront-font-display)" }}
-        >
-          By continuing, you agree to our{" "}
-          <span className="underline">Terms of Service</span> and{" "}
-          <span className="underline">Privacy Policy</span>.
-        </p>
+            <form onSubmit={handleContinue} className="flex flex-col gap-3">
+              <div className="relative">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Email address"
+                  disabled={submitting}
+                  className="h-[50px] w-full rounded border border-[#bababa] bg-white px-4 text-sm text-black outline-none placeholder:text-[#9c9c9c] focus:border-black disabled:opacity-50"
+                  style={fontDisplay}
+                  autoComplete="email"
+                  required
+                />
+              </div>
+              {error && (
+                <p
+                  className="text-xs text-[#dc2626]"
+                  style={fontMono}
+                >
+                  {error}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={submitting || email.trim().length === 0}
+                className="flex h-[50px] items-center justify-center rounded bg-black text-sm uppercase tracking-[-0.02em] text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                style={fontMono}
+              >
+                {submitting ? "SENDING…" : "CONTINUE"}
+              </button>
+            </form>
+
+            <p
+              className="text-center text-xs leading-relaxed text-[#9c9c9c]"
+              style={fontDisplay}
+            >
+              By continuing, you agree to our{" "}
+              <span className="underline">Terms of Service</span> and{" "}
+              <span className="underline">Privacy Policy</span>.
+            </p>
+          </>
+        )}
       </div>
     </ModalOverlay>
   );

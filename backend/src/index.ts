@@ -5,6 +5,7 @@ import { healthRoutes } from "./routes/health.js";
 import { bastaTokenRoutes } from "./routes/basta-token.js";
 import { sellerRoutes } from "./routes/seller/index.js";
 import { sellerOnboardingRoutes } from "./routes/seller-onboarding.js";
+import { buyerRoutes } from "./routes/buyer.js";
 import { config } from "./config.js";
 
 const fastify = Fastify({ logger: true });
@@ -30,6 +31,7 @@ async function start() {
   await fastify.register(bastaTokenRoutes);
   await fastify.register(sellerRoutes);
   await fastify.register(sellerOnboardingRoutes);
+  await fastify.register(buyerRoutes);
 
   await fastify.listen({ port: config.port, host: "0.0.0.0" });
 }

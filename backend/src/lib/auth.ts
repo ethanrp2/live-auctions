@@ -1,6 +1,31 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { supabaseAdmin } from "./supabase.js";
 
+export interface AuthedUser {
+  userId: string;
+  email: string | null;
+}
+
+export async function requireAuthedUser(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<AuthedUser | null> {
+  const accessToken = getBearerToken(request);
+  if (!accessToken) {
+    await reply.status(401).send({ error: "Missing authorization header" });
+    return null;
+  }
+  const {
+    data: { user },
+    error,
+  } = await supabaseAdmin.auth.getUser(accessToken);
+  if (error || !user) {
+    await reply.status(401).send({ error: "Invalid or expired session" });
+    return null;
+  }
+  return { userId: user.id, email: user.email ?? null };
+}
+
 export interface SellerProfile {
   id: string;
   tenant_id: string | null;
@@ -25,7 +50,7 @@ export interface AuctionOwnershipRecord {
   scheduled_date: string | null;
 }
 
-function getBearerToken(request: FastifyRequest): string | null {
+export function getBearerToken(request: FastifyRequest): string | null {
   const authHeader = request.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     return null;

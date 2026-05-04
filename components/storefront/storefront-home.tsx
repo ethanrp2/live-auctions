@@ -1,4 +1,3 @@
-import type { User } from "@supabase/supabase-js";
 import type { Tenant } from "@/lib/tenant";
 import { getStorefrontAuction } from "@/lib/storefront-data";
 import { resolveFontVars } from "@/lib/storefront-fonts";
@@ -9,10 +8,9 @@ import { SmsSubscribe } from "./sms-subscribe";
 
 interface StorefrontHomeProps {
   tenant: Tenant;
-  user: User | null;
 }
 
-export async function StorefrontHome({ tenant, user }: StorefrontHomeProps) {
+export async function StorefrontHome({ tenant }: StorefrontHomeProps) {
   const { auction } = await getStorefrontAuction(tenant.id);
   const primary = tenant.brand_colors?.primary ?? "#000000";
   const { display: fontDisplay, mono: fontMono } = resolveFontVars(tenant);

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function NotFound() {
   return (
     <div className="flex flex-1 items-center justify-center">
@@ -6,12 +8,12 @@ export default function NotFound() {
         <p className="mt-4 text-lg text-zinc-600 dark:text-zinc-400">
           This auction house could not be found.
         </p>
-        <a
+        <Link
           href="/"
           className="mt-6 inline-block text-sm font-medium text-zinc-900 underline dark:text-zinc-100"
         >
           Go to Live Auctions
-        </a>
+        </Link>
       </div>
     </div>
   );

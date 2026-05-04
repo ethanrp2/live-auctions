@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { LogoutButton } from "@/components/logout-button";
 import { getTenantBySlug } from "@/lib/tenant";
 import { StorefrontHome } from "@/components/storefront/storefront-home";
+import { LiveAuctionView } from "@/components/live/live-auction-view";
+import { getLiveAuctionForTenant } from "@/lib/live-auction-data";
 
 export default async function Home() {
   const headersList = await headers();
@@ -16,7 +18,13 @@ export default async function Home() {
   if (tenantSlug) {
     const tenant = await getTenantBySlug(supabase, tenantSlug);
     if (tenant) {
-      return <StorefrontHome tenant={tenant} user={user} />;
+      const live = await getLiveAuctionForTenant(tenant.id);
+      if (live) {
+        return (
+          <LiveAuctionView tenant={tenant} user={user} initial={live} />
+        );
+      }
+      return <StorefrontHome tenant={tenant} />;
     }
   }
 

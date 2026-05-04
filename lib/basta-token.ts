@@ -11,10 +11,17 @@ export async function getBastaToken(
     return cached.token;
   }
 
-  const res = await fetch(`${BACKEND_URL}/api/basta-token`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${supabaseAccessToken}` },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND_URL}/api/basta-token`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${supabaseAccessToken}` },
+    });
+  } catch {
+    throw new Error(
+      `Can't reach the API backend at ${BACKEND_URL}. Run \`pnpm dev:all\` so Fastify starts alongside Next.`
+    );
+  }
 
   if (!res.ok) {
     throw new Error("Failed to get Basta token");

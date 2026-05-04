@@ -31,10 +31,9 @@ const HERO_ASSET = {
   ext: "jpg" as const,
 };
 
-// Logo is a vector SVG in Figma — MCP exports it as a tiny raster that looks
-// broken when upscaled. Set logo_url to null so the template renders "BASA"
+// Logo is a vector SVG in Figma. MCP exports it as a tiny raster that looks
+// broken when upscaled, so logo_url stays null and the template renders "BASA"
 // as crisp text in the mono font instead.
-const LOGO_ASSET = null;
 
 interface LotSeed {
   index: number;
@@ -306,7 +305,7 @@ async function main() {
   await ensureBucket();
   console.log(`✓ bucket "${BUCKET}" ready`);
 
-  // 3. Upload hero (logo is rendered as text — see LOGO_ASSET comment)
+  // 3. Upload hero (logo is rendered as text)
   console.log("→ uploading hero image");
   const heroUrl = await uploadAsset(
     HERO_ASSET.url,

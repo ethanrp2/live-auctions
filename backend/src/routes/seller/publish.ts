@@ -40,6 +40,7 @@ function mapLotToCreateItemInput(
   openDate: Date,
   closingDate: Date
 ): CreateItemForSaleInput {
+  // lots.starting_bid and lots.reserve are stored in cents; Basta expects cents.
   return {
     saleId,
     title: lot.title,
