@@ -3,10 +3,7 @@
  *
  * Wraps the full flow used by callers like <MaxBidSection>:
  *   1. fetchBidSupport(lotId)        → saleId + itemId
- *   2. getBastaToken(supabaseToken)  → bidder JWT (module-cached, 5-min buffer)
- *   3. bidOnItem(...)                → place the bid
- *   4. On INVALID_TOKEN / UNAUTHORIZED: invalidate the cached bidder token
- *      and retry bidOnItem ONCE with a freshly-minted token.
+ *   2. bidOnItem(...)                → place the bid through our backend.
  *
  * Returns the normalized BastaBidResult from lib/basta/client.ts. Callers can
  * branch on `result.ok` and format errors via `bidErrorMessage`.
@@ -14,7 +11,6 @@
  * See docs/memory/architecture/basta-integration.md for the bid flow.
  */
 
-import { getBastaToken, invalidateBastaTokenCache } from "@/lib/basta-token";
 import { fetchBidSupport } from "@/lib/basta/bid-support";
 import type { BidIncrementRule } from "@/lib/basta/bid-support";
 import { resolveIncrement } from "@/lib/basta/bid-support";
@@ -33,38 +29,13 @@ export async function placeBidForLot(params: {
   // 1. Resolve Basta saleId + itemId via our backend helper.
   const support = await fetchBidSupport(lotId);
 
-  // 2. Mint (or reuse cached) Basta bidder token.
-  const bidderToken = await getBastaToken(supabaseAccessToken);
-
-  // 3. Place the bid.
-  const first = await bidOnItem({
-    bidderToken,
+  return bidOnItem({
+    supabaseAccessToken,
     saleId: support.saleId,
     itemId: support.itemId,
     amount: amountCents,
     type,
   });
-
-  // 4. Refresh-and-retry once on expired/invalid token. The token cache has
-  //    a 5-min refresh buffer, so expiry mid-flight is rare but possible if
-  //    Basta rotates keys or the browser tab was idle.
-  if (
-    !first.ok &&
-    (first.errorCode === "INVALID_TOKEN" ||
-      first.errorCode === "UNAUTHORIZED")
-  ) {
-    invalidateBastaTokenCache();
-    const refreshed = await getBastaToken(supabaseAccessToken);
-    return bidOnItem({
-      bidderToken: refreshed,
-      saleId: support.saleId,
-      itemId: support.itemId,
-      amount: amountCents,
-      type,
-    });
-  }
-
-  return first;
 }
 
 /**

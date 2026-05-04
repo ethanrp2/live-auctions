@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantBySlug } from "@/lib/tenant";
@@ -9,6 +10,7 @@ export default async function LiveAuctionPage({
 }: {
   params: Promise<{ auctionId: string }>;
 }) {
+  await connection();
   const { auctionId } = await params;
   const headersList = await headers();
   const tenantSlug = headersList.get("x-tenant-slug");

@@ -72,11 +72,11 @@ function getLotStatusLabel(
   isActive: boolean,
   isNext: boolean
 ): string {
-  if (isActive) return "LIVE";
   if (isSoldLot(liveStatus)) {
     if (liveStatus === "passed") return "PASS";
     return "SOLD";
   }
+  if (isActive) return "LIVE";
   if (isNext) return "NEXT";
   if (isLiveLot(liveStatus)) return "LIVE";
   return "UPCOMING";
@@ -312,13 +312,25 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   const [currentLotId, setCurrentLotId] = useState<string | null>(
     auction.currentLotId
   );
+  const [lotStatusOverrides, setLotStatusOverrides] = useState<
+    Record<string, string | null>
+  >({});
   const [actionError, setActionError] = useState<string | null>(null);
   const [isActing, setIsActing] = useState(false);
   const [selectedIncrement, setSelectedIncrement] = useState<number>(INCREMENT_OPTIONS[0]);
 
+  const liveLots = useMemo(
+    () =>
+      lots.map((lot) => ({
+        ...lot,
+        liveStatus: lotStatusOverrides[lot.id] ?? lot.liveStatus,
+      })),
+    [lots, lotStatusOverrides]
+  );
+
   const currentLot = useMemo(
-    () => lots.find((l) => l.id === currentLotId) ?? lots[0] ?? null,
-    [lots, currentLotId]
+    () => liveLots.find((l) => l.id === currentLotId) ?? liveLots[0] ?? null,
+    [liveLots, currentLotId]
   );
 
   const currentBastaItemId = currentLot?.bastaItemId ?? null;
@@ -327,7 +339,8 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
     useConsoleActivity(
       auction.bastaSaleId ?? null,
       auction.id,
-      currentBastaItemId
+      currentBastaItemId,
+      currentLot?.id ?? null
     );
 
   const elapsed = useElapsedTimer(auction.wentLiveAt);
@@ -336,9 +349,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   // Max bids on current lot
   const maxBidsOnLot = useMemo(() => {
     if (!currentLot) return [];
-    return bids.filter(
-      (b) => b.bidType === "MAX"
-    );
+    return bids.filter((b) => b.lotId === currentLot.id && b.bidType === "MAX");
   }, [bids, currentLot]);
 
   const highestMaxBid = useMemo(() => {
@@ -348,30 +359,27 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
 
   // Top bidder (for SELL)
   const topBidder = useMemo(() => {
-    const lotBids = bids.filter((b) => {
-      // We don't have lot_id on BidFeedRow in the auction-scoped feed.
-      // Use the highest amount as proxy for the winner.
-      return true;
-    });
+    if (!currentLot) return null;
+    const lotBids = bids.filter((b) => b.lotId === currentLot.id);
     if (lotBids.length === 0) return null;
     return lotBids.reduce((best, b) => (b.amountCents > best.amountCents ? b : best));
-  }, [bids]);
+  }, [bids, currentLot]);
 
   // Next lot in sort order
   const nextLot = useMemo(() => {
     if (!currentLot || currentLot.sortOrder == null) return null;
     return (
-      lots.find(
+      liveLots.find(
         (l) => (l.sortOrder ?? -1) > (currentLot.sortOrder ?? 0) && !isSoldLot(l.liveStatus)
       ) ?? null
     );
-  }, [lots, currentLot]);
+  }, [liveLots, currentLot]);
 
   const currentLotIndex = useMemo(() => {
     if (!currentLot) return 1;
-    const idx = lots.findIndex((l) => l.id === currentLot.id);
+    const idx = liveLots.findIndex((l) => l.id === currentLot.id);
     return idx >= 0 ? idx + 1 : 1;
-  }, [lots, currentLot]);
+  }, [liveLots, currentLot]);
 
   // Image carousel state
   const [imageIndex, setImageIndex] = useState(0);
@@ -381,6 +389,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
 
   const currentImages = currentLot?.images ?? [];
   const currentImage = currentImages[imageIndex] ?? null;
+  const currentLotIsTerminal = isSoldLot(currentLot?.liveStatus ?? null);
 
   // ── Lot queue image carousel lots from saleActivity ────────────────────
   // For live status label, merge saleActivity statuses back if needed.
@@ -398,6 +407,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
     );
     if (result.ok) {
       setCurrentLotId(lotId);
+      setLotStatusOverrides((prev) => ({ ...prev, [lotId]: "live" }));
     } else {
       setActionError(result.error ?? "Failed to switch lot");
     }
@@ -406,6 +416,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
 
   async function handleSell() {
     if (!currentLot || isActing) return;
+    if (currentLotIsTerminal) return;
     if (!topBidder?.userId || currentBidCents == null) {
       setActionError("No bids on this lot yet.");
       return;
@@ -420,13 +431,16 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
     if (!result.ok) {
       setActionError(result.error ?? "Sell failed");
     } else if (nextLot) {
+      setLotStatusOverrides((prev) => ({ ...prev, [currentLot.id]: "sold" }));
       await handleSwitchLot(nextLot.id);
+    } else {
+      setLotStatusOverrides((prev) => ({ ...prev, [currentLot.id]: "sold" }));
     }
     setIsActing(false);
   }
 
   async function handlePass() {
-    if (!currentLot || isActing) return;
+    if (!currentLot || isActing || currentLotIsTerminal) return;
     setIsActing(true);
     setActionError(null);
     const result = await apiPost(`/api/auctions/${auction.id}/pass`, {
@@ -435,7 +449,10 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
     if (!result.ok) {
       setActionError(result.error ?? "Pass failed");
     } else if (nextLot) {
+      setLotStatusOverrides((prev) => ({ ...prev, [currentLot.id]: "passed" }));
       await handleSwitchLot(nextLot.id);
+    } else {
+      setLotStatusOverrides((prev) => ({ ...prev, [currentLot.id]: "passed" }));
     }
     setIsActing(false);
   }
@@ -562,12 +579,12 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
               className="text-[11px] text-black/40"
               style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
             >
-              {currentLotIndex} OF {lots.length}
+              {currentLotIndex} OF {liveLots.length}
             </span>
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {lots.map((lot, idx) => {
+            {liveLots.map((lot, idx) => {
               const isActive = lot.id === currentLotId;
               const isNext =
                 !isActive &&
@@ -754,7 +771,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                       className="mb-1 block text-[11px] uppercase text-black/40"
                       style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
                     >
-                      LOT {pad(currentLotIndex)} OF {lots.length}
+                          LOT {pad(currentLotIndex)} OF {liveLots.length}
                     </span>
                     <h2
                       className="text-xl font-normal leading-snug text-black"
@@ -946,7 +963,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
               <button
                 type="button"
                 onClick={handleSell}
-                disabled={isActing || currentBidCents == null}
+                disabled={isActing || currentLotIsTerminal || currentBidCents == null}
                 className="w-full rounded-[6px] bg-[#00ad37] py-3 text-[12px] font-semibold uppercase tracking-widest text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
               >
@@ -958,7 +975,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                 <button
                   type="button"
                   onClick={handlePass}
-                  disabled={isActing}
+                  disabled={isActing || currentLotIsTerminal}
                   className="flex-1 rounded-[6px] border border-[#e5e5e5] py-2.5 text-[11px] uppercase tracking-widest text-black/60 transition-colors hover:border-black hover:text-black disabled:opacity-40"
                   style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
                 >

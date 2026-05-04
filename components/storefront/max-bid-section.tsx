@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { formatMoneyCents, parseDollarsToCents } from "@/lib/format";
 import { useUser } from "@/lib/hooks/use-user";
-import { getBastaToken } from "@/lib/basta-token";
 import { fetchBidSupport } from "@/lib/basta/bid-support";
 import { bidOnItem, bidErrorMessage } from "@/lib/basta/client";
 
@@ -81,35 +80,13 @@ export function MaxBidSection({
       // 1. Resolve Basta saleId/itemId via our backend helper.
       const support = await fetchBidSupport(lotId);
 
-      // 2. Mint (or reuse cached) Basta bidder token.
-      const bidderToken = await getBastaToken(session.access_token);
-
-      // 3. Fire bidOnItem(type: MAX). Token refresh-and-retry on expired token:
-      //    the token helper caches with a 5-minute buffer, so expiry is rare,
-      //    but we handle it defensively once.
-      let result = await bidOnItem({
-        bidderToken,
+      const result = await bidOnItem({
+        supabaseAccessToken: session.access_token,
         saleId: support.saleId,
         itemId: support.itemId,
         amount: cents,
         type: "MAX",
       });
-
-      if (
-        !result.ok &&
-        (result.errorCode === "INVALID_TOKEN" ||
-          result.errorCode === "UNAUTHORIZED")
-      ) {
-        // Force a fresh token and retry once.
-        const refreshed = await getBastaToken(session.access_token);
-        result = await bidOnItem({
-          bidderToken: refreshed,
-          saleId: support.saleId,
-          itemId: support.itemId,
-          amount: cents,
-          type: "MAX",
-        });
-      }
 
       if (!result.ok) {
         setState({

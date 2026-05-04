@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ConsoleView } from "./view";
@@ -7,6 +8,7 @@ export default async function ConsolePage({
 }: {
   params: Promise<{ auctionId: string }>;
 }) {
+  await connection();
   const { auctionId } = await params;
 
   const supabase = await createClient();

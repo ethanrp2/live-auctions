@@ -9,7 +9,7 @@
  *   3. Supabase Realtime on `auction_questions` filtered by auction_id.
  *
  * Returns:
- *   currentBidCents  — integer cents from Basta WS (null if no bids yet)
+ *   currentBidCents  — integer cents from Basta WS with Supabase bid fallback
  *   countdownMs      — ms remaining from Basta WS (null if not in countdown)
  *   saleActivity     — full Map<itemId, SaleUpdatePayload> (all lots)
  *   bids             — BidFeedRow[] newest-first for the whole auction
@@ -44,6 +44,7 @@ export type QuestionRow = {
 
 type BidsTableRow = {
   id: string;
+  lot_id: string;
   user_id: string | null;
   amount_cents: number;
   bid_type: "MAX" | "NORMAL";
@@ -95,7 +96,8 @@ function resolveDisplayName(
 export function useConsoleActivity(
   saleId: string | null,
   auctionId: string | null,
-  currentBastaItemId: string | null
+  currentBastaItemId: string | null,
+  currentLotId: string | null
 ): UseConsoleActivityResult {
   // ── Basta WS state ──────────────────────────────────────────────────────
   const [saleActivity, setSaleActivity] = useState<Map<string, SaleUpdatePayload>>(
@@ -160,8 +162,6 @@ export function useConsoleActivity(
     ? saleActivity.get(currentBastaItemId)
     : undefined;
 
-  const hasBids = !!liveForCurrent && liveForCurrent.bidCount > 0;
-  const currentBidCents = hasBids ? (liveForCurrent?.currentBid ?? null) : null;
   const countdownMs = liveForCurrent?.timeRemaining != null
     ? liveForCurrent.timeRemaining * 1000
     : null;
@@ -170,6 +170,11 @@ export function useConsoleActivity(
   const [bids, setBids] = useState<BidFeedRow[]>([]);
   const [supabaseConnected, setSupabaseConnected] = useState(false);
   const profilesRef = useRef<Map<string, string | null>>(new Map());
+  const latestBidForCurrentLot = currentLotId
+    ? bids.find((bid) => bid.lotId === currentLotId)
+    : null;
+  const currentBidCents =
+    liveForCurrent?.currentBid ?? latestBidForCurrentLot?.amountCents ?? null;
 
   useEffect(() => {
     if (!auctionId) {
@@ -188,7 +193,7 @@ export function useConsoleActivity(
     async function bootstrapBids() {
       const { data: bidsData } = await supabase
         .from("bids")
-        .select("id, user_id, amount_cents, bid_type, reactive, placed_at")
+        .select("id, lot_id, user_id, amount_cents, bid_type, reactive, placed_at")
         .eq("auction_id", auctionId)
         .order("placed_at", { ascending: false })
         .limit(RECENT_BID_LIMIT);
@@ -219,6 +224,7 @@ export function useConsoleActivity(
       setBids(
         seedRows.map((row) => ({
           id: row.id,
+          lotId: row.lot_id,
           userId: row.user_id,
           displayName: resolveDisplayName(row.user_id, profiles),
           amountCents: row.amount_cents,
@@ -266,6 +272,7 @@ export function useConsoleActivity(
 
             const next: BidFeedRow = {
               id: row.id,
+              lotId: row.lot_id,
               userId,
               displayName: resolveDisplayName(userId, profiles),
               amountCents: row.amount_cents,

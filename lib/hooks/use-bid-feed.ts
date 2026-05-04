@@ -15,6 +15,7 @@ const RECENT_BID_LIMIT = 50;
 
 export type BidFeedRow = {
   id: string;
+  lotId?: string;
   userId: string | null;
   displayName: string;
   amountCents: number;

@@ -1,4 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import crypto from "node:crypto";
+import { config } from "../config.js";
+import { bidOnItemWithToken, createBidderToken } from "../lib/basta.js";
 import { supabaseAdmin } from "../lib/supabase.js";
 
 /**
@@ -45,6 +48,36 @@ const paramsSchema = {
   },
 } as const;
 
+const bidBodySchema = {
+  type: "object",
+  required: ["saleId", "itemId", "amountCents", "type"],
+  additionalProperties: false,
+  properties: {
+    saleId: { type: "string", minLength: 1 },
+    itemId: { type: "string", minLength: 1 },
+    amountCents: { type: "integer", minimum: 0 },
+    type: { type: "string", enum: ["MAX", "NORMAL"] },
+  },
+} as const;
+
+interface BidLotRow {
+  id: string;
+  tenant_id: string;
+  auction_id: string;
+  basta_item_id: string | null;
+  starting_bid: number | null;
+  auctions: {
+    id: string;
+    basta_sale_id: string | null;
+    status: string | null;
+  } | null;
+}
+
+function getBearerToken(authHeader: string | undefined): string | null {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  return authHeader.slice(7).trim();
+}
+
 export async function bastaBidSupportRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { lotId: string } }>(
     "/api/basta/bid-support/:lotId",
@@ -89,6 +122,113 @@ export async function bastaBidSupportRoutes(fastify: FastifyInstance) {
         closingTimeCountdownMs: auction.closing_time_countdown_ms ?? null,
         startingBidCents: data.starting_bid ?? 0,
         auctionStatus: auction.status,
+      });
+    }
+  );
+
+  fastify.post<{
+    Body: {
+      saleId: string;
+      itemId: string;
+      amountCents: number;
+      type: "MAX" | "NORMAL";
+    };
+  }>(
+    "/api/basta/bid",
+    { schema: { body: bidBodySchema } },
+    async (request, reply) => {
+      const accessToken = getBearerToken(request.headers.authorization);
+      if (!accessToken) {
+        return reply.status(401).send({ error: "Missing authorization header" });
+      }
+
+      const {
+        data: { user },
+        error: userError,
+      } = await supabaseAdmin.auth.getUser(accessToken);
+
+      if (userError || !user) {
+        return reply.status(401).send({ error: "Invalid or expired session" });
+      }
+
+      const { saleId, itemId, amountCents, type } = request.body;
+
+      const { data: lot, error: lotError } = await supabaseAdmin
+        .from("lots")
+        .select(
+          `id, tenant_id, auction_id, basta_item_id, starting_bid,
+           auctions:auctions!lots_auction_id_fkey ( id, basta_sale_id, status )`
+        )
+        .eq("basta_item_id", itemId)
+        .maybeSingle<BidLotRow>();
+
+      if (lotError) {
+        request.log.error({ err: lotError, itemId }, "bid lot lookup failed");
+        return reply.status(500).send({ error: "Failed to load lot" });
+      }
+
+      const auction = lot?.auctions;
+      if (!lot || !auction || auction.basta_sale_id !== saleId) {
+        return reply.status(404).send({ error: "Lot not found for sale" });
+      }
+
+      if (!["published", "live"].includes(auction.status ?? "")) {
+        return reply.status(409).send({ error: "Auction is not accepting bids" });
+      }
+
+      if (amountCents < (lot.starting_bid ?? 0)) {
+        return reply.status(422).send({ error: "Bid is below the starting bid" });
+      }
+
+      const bidderToken = await createBidderToken(
+        user.id,
+        config.bastaBidderTokenTtlMinutes
+      );
+
+      const result = await bidOnItemWithToken({
+        bidderToken: bidderToken.token,
+        saleId,
+        itemId,
+        amount: amountCents,
+        type,
+      });
+
+      if (!result.ok) {
+        return reply.status(422).send(result);
+      }
+
+      const placedAt = new Date(result.date);
+      const placedAtIso = Number.isNaN(placedAt.getTime())
+        ? new Date().toISOString()
+        : placedAt.toISOString();
+
+      const { error: insertError } = await supabaseAdmin.from("bids").upsert(
+        {
+          tenant_id: lot.tenant_id,
+          auction_id: lot.auction_id,
+          lot_id: lot.id,
+          user_id: user.id,
+          basta_bid_id: `local:${crypto.randomUUID()}`,
+          amount_cents: result.amount,
+          max_amount_cents: Math.max(amountCents, result.amount),
+          bid_type: type,
+          reactive: false,
+          placed_at: placedAtIso,
+        },
+        { onConflict: "basta_bid_id", ignoreDuplicates: true }
+      );
+
+      if (insertError) {
+        request.log.error({ err: insertError, itemId }, "bid mirror insert failed");
+        return reply.status(500).send({ error: "Bid placed but failed to mirror locally" });
+      }
+
+      return reply.send({
+        ok: true,
+        amount: result.amount,
+        bidStatus: result.bidStatus,
+        date: result.date,
+        bidType: type,
       });
     }
   );

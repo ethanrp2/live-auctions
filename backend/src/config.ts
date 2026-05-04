@@ -12,7 +12,7 @@ export const config = {
   bastaBidderTokenTtlMinutes: Number(
     process.env.BASTA_BIDDER_TOKEN_TTL_MINUTES ?? 60
   ),
-  bastaLotDurationMs: Number(process.env.BASTA_LOT_DURATION_MS ?? 120_000),
+  bastaLotDurationMs: Number(process.env.BASTA_LOT_DURATION_MS ?? 3_600_000),
   signedUploadExpiresInSeconds: Number(
     process.env.SIGNED_UPLOAD_EXPIRES_IN_SECONDS ?? 1800
   ),

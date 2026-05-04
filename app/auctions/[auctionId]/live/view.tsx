@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/hooks/use-user";
 import { useSaleActivity } from "@/lib/hooks/use-sale-activity";
 import { useBidFeed } from "@/lib/hooks/use-bid-feed";
+import { createClient } from "@/lib/supabase/client";
 import type { BidFeedRow } from "@/lib/hooks/use-bid-feed";
 import type { BidIncrementRule } from "@/lib/basta/bid-support";
 import { bidErrorMessage } from "@/lib/basta/client";
@@ -78,10 +79,10 @@ function coerceIncrementTable(raw: unknown): BidIncrementRule[] | null {
 
 function normalizeLiveStatus(
   status: string | null
-): "upcoming" | "live" | "sold" {
+): "upcoming" | "live" | "sold" | "passed" {
   if (status === "live" || status === "closing") return "live";
-  if (status === "sold" || status === "passed" || status === "closed")
-    return "sold";
+  if (status === "passed") return "passed";
+  if (status === "sold" || status === "closed") return "sold";
   return "upcoming";
 }
 
@@ -123,10 +124,69 @@ function bidRowToFeedEntry(
 export function LiveAuctionView({ auction, lots }: Props) {
   const { user, session } = useUser();
   const { updates } = useSaleActivity(auction.bastaSaleId ?? null);
+  const [currentLotId, setCurrentLotId] = useState<string | null>(
+    auction.currentLotId
+  );
+  const [lotStatusOverrides, setLotStatusOverrides] = useState<
+    Record<string, string | null>
+  >({});
+
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`live:auction-state:${auction.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "auctions",
+          filter: `id=eq.${auction.id}`,
+        },
+        (payload) => {
+          const next = payload.new as { current_lot_id?: string | null };
+          if ("current_lot_id" in next) {
+            setCurrentLotId(next.current_lot_id ?? null);
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "lots",
+          filter: `auction_id=eq.${auction.id}`,
+        },
+        (payload) => {
+          const next = payload.new as { id?: string; live_status?: string | null };
+          if (next.id) {
+            setLotStatusOverrides((prev) => ({
+              ...prev,
+              [next.id as string]: next.live_status ?? null,
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [auction.id]);
+
+  const liveLots = useMemo(
+    () =>
+      lots.map((lot) => ({
+        ...lot,
+        liveStatus: lotStatusOverrides[lot.id] ?? lot.liveStatus,
+      })),
+    [lots, lotStatusOverrides]
+  );
 
   const currentLot = useMemo(
-    () => lots.find((l) => l.id === auction.currentLotId) ?? lots[0] ?? null,
-    [lots, auction.currentLotId]
+    () => liveLots.find((l) => l.id === currentLotId) ?? liveLots[0] ?? null,
+    [liveLots, currentLotId]
   );
 
   const currentBastaItemId = currentLot?.bastaItemId ?? null;
@@ -139,22 +199,20 @@ export function LiveAuctionView({ auction, lots }: Props) {
     [auction.bidIncrementTable]
   );
 
-  const hasBids = !!liveForCurrent && liveForCurrent.bidCount > 0;
-  const currentBidCents = hasBids
-    ? (liveForCurrent?.currentBid ?? null)
-    : null;
+  const { bids } = useBidFeed(currentLot?.id ?? null);
+
+  const latestBidCents = bids[0]?.amountCents ?? null;
+  const currentBidCents = liveForCurrent?.currentBid ?? latestBidCents;
 
   const nextBidCents = useMemo(
     () =>
       computeNextBidAmountCents(
-        hasBids ? (liveForCurrent?.currentBid ?? 0) : 0,
+        currentBidCents ?? 0,
         incrementTable,
         currentLot?.startingBid ?? 0
       ),
-    [hasBids, liveForCurrent?.currentBid, incrementTable, currentLot?.startingBid]
+    [currentBidCents, incrementTable, currentLot?.startingBid]
   );
-
-  const { bids } = useBidFeed(currentLot?.id ?? null);
 
   const iAmLeader = useMemo(() => {
     if (!user || bids.length === 0) return false;
@@ -173,9 +231,14 @@ export function LiveAuctionView({ auction, lots }: Props) {
   }, [currentLot?.id]);
 
   const itemStatus = liveForCurrent?.status ?? null;
-  const isSold = itemStatus === "CLOSED";
+  const isPassed = currentLot?.liveStatus === "passed";
+  const isSold =
+    itemStatus === "CLOSED" ||
+    currentLot?.liveStatus === "sold" ||
+    currentLot?.liveStatus === "closed";
 
   const viewerState: LiveViewerState = useMemo(() => {
+    if (isPassed) return { kind: "passed" };
     if (isSold) {
       const winnerHandle = bids[0]?.displayName ?? "\u2014";
       const winningPriceCents =
@@ -185,37 +248,37 @@ export function LiveAuctionView({ auction, lots }: Props) {
     if (iAmLeader) return { kind: "winning" };
     if (hasBidOnThisLot && !iAmLeader) return { kind: "outbid" };
     return { kind: "idle" };
-  }, [isSold, iAmLeader, hasBidOnThisLot, bids, liveForCurrent?.currentBid]);
+  }, [isPassed, isSold, iAmLeader, hasBidOnThisLot, bids, liveForCurrent?.currentBid]);
 
   const countdownMs = useMemo(() => {
     const secs = liveForCurrent?.timeRemaining ?? null;
     return secs == null ? null : secs * 1000;
   }, [liveForCurrent?.timeRemaining]);
 
-  const bannerKind: "winning" | "outbid" | "sold" | "paused" | null = useMemo(() => {
+  const bannerKind: "winning" | "outbid" | "sold" | "passed" | "paused" | null = useMemo(() => {
     if (viewerState.kind === "idle") return null;
     return viewerState.kind;
   }, [viewerState]);
 
   const ribbonLots: LiveRibbonLot[] = useMemo(
     () =>
-      lots.map((l) => ({
+      liveLots.map((l) => ({
         id: l.id,
         title: l.title,
         thumbnail: l.images[0] ?? null,
         sort_order: l.sortOrder,
         liveStatus: normalizeLiveStatus(l.liveStatus),
       })),
-    [lots]
+    [liveLots]
   );
 
   const nextLotId = useMemo(() => {
     if (!currentLot || currentLot.sortOrder == null) return null;
     return (
-      lots.find((l) => l.sortOrder === (currentLot.sortOrder ?? 0) + 1)?.id ??
-      null
+      liveLots.find((l) => l.sortOrder === (currentLot.sortOrder ?? 0) + 1)
+        ?.id ?? null
     );
-  }, [lots, currentLot]);
+  }, [liveLots, currentLot]);
 
   const bidFeedEntries: BidFeedEntry[] = useMemo(
     () => bids.map((b) => bidRowToFeedEntry(b, user?.id ?? null)),
@@ -224,9 +287,9 @@ export function LiveAuctionView({ auction, lots }: Props) {
 
   const lotIndex = useMemo(() => {
     if (!currentLot) return 1;
-    const idx = lots.findIndex((l) => l.id === currentLot.id);
+    const idx = liveLots.findIndex((l) => l.id === currentLot.id);
     return idx >= 0 ? idx + 1 : 1;
-  }, [lots, currentLot]);
+  }, [liveLots, currentLot]);
 
   async function handleOneTapBid(): Promise<void> {
     setLastError(null);

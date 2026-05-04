@@ -8,6 +8,7 @@ export type LiveViewerState =
   | { kind: "winning" }
   | { kind: "outbid" }
   | { kind: "sold"; winnerHandle: string; winningPriceCents: number }
+  | { kind: "passed" }
   | { kind: "paused" };
 
 export interface LiveBidFooterProps {
@@ -30,6 +31,7 @@ function ctaLabel(
 ): string {
   if (isPlacing) return "PLACING BID…";
   if (viewerState.kind === "paused") return "PAUSED";
+  if (viewerState.kind === "passed") return "PASSED";
   if (viewerState.kind === "sold") return "SOLD";
   if (!isAuthenticated) return "SIGN IN TO BID";
   if (viewerState.kind === "outbid") {
@@ -54,8 +56,24 @@ export function LiveBidFooter({
   lastError,
 }: LiveBidFooterProps) {
   const isSold = viewerState.kind === "sold";
+  const isPassed = viewerState.kind === "passed";
   const isPaused = viewerState.kind === "paused";
-  const ctaDisabled = isPlacing || isSold || isPaused;
+  const ctaDisabled = isPlacing || isSold || isPassed || isPaused;
+
+  if (isPassed) {
+    return (
+      <div
+        className="sticky bottom-0 z-10 flex flex-col gap-2 border-t border-[#f3f3f3] bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        <div className="flex h-[50px] items-center justify-center rounded-[2px] bg-black px-4">
+          <span className="text-sm uppercase tracking-[-0.02em] text-white">
+            PASSED
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   if (isSold) {
     return (
@@ -119,7 +137,7 @@ export function LiveBidFooter({
         <button
           type="button"
           onClick={onOpenCustomBid}
-          disabled={isPlacing || isPaused}
+          disabled={isPlacing || isPassed || isPaused}
           className="text-[11px] uppercase tracking-[-0.02em] text-[#5e5e5e] underline transition-colors hover:text-black disabled:opacity-60"
         >
           CUSTOM AMOUNT
@@ -128,7 +146,7 @@ export function LiveBidFooter({
         <button
           type="button"
           onClick={onOpenMaxBid}
-          disabled={isPlacing || isPaused}
+          disabled={isPlacing || isPassed || isPaused}
           className="text-[11px] uppercase tracking-[-0.02em] text-[#5e5e5e] underline transition-colors hover:text-black disabled:opacity-60"
         >
           SET MAX BID

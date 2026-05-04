@@ -1,16 +1,5 @@
-/**
- * Basta Client API wrapper — client-side only.
- *
- * All calls here go directly to wss/https://client.api.basta.app from the
- * browser. Mutations (bidOnItem) require a bidder JWT from our Fastify
- * /api/basta-token endpoint via lib/basta-token.ts.
- *
- * See docs/memory/architecture/basta-integration.md for the full bid flow.
- */
-
-const BASTA_CLIENT_URL =
-  process.env.NEXT_PUBLIC_BASTA_CLIENT_URL ??
-  "https://client.api.basta.app/graphql";
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
 export type BastaBidType = "MAX" | "NORMAL";
 
@@ -28,122 +17,46 @@ export type BastaBidResult =
       error: string;
     };
 
-interface GraphQLError {
-  message: string;
-  extensions?: Record<string, unknown>;
-}
-
-interface GraphQLResponse<T> {
-  data?: T;
-  errors?: GraphQLError[];
-}
-
-// Union types come back with __typename discriminators.
-interface BidOnItemResponse {
-  bidOnItem:
-    | {
-        __typename: "BidPlacedSuccess";
-        amount: number;
-        bidStatus: string;
-        date: string;
-      }
-    | {
-        __typename: "BidPlacedError";
-        errorCode: string;
-        error: string;
-      };
-}
-
-const BID_ON_ITEM = /* GraphQL */ `
-  mutation BidOnItem(
-    $saleId: String!
-    $itemId: String!
-    $amount: Int!
-    $type: BidType!
-  ) {
-    bidOnItem(saleId: $saleId, itemId: $itemId, amount: $amount, type: $type) {
-      __typename
-      ... on BidPlacedSuccess {
-        amount
-        bidStatus
-        date
-      }
-      ... on BidPlacedError {
-        errorCode
-        error
-      }
-    }
-  }
-`;
-
 export async function bidOnItem(params: {
-  bidderToken: string;
+  supabaseAccessToken: string;
   saleId: string;
   itemId: string;
   /** Integer cents. */
   amount: number;
   type: BastaBidType;
 }): Promise<BastaBidResult> {
-  const res = await fetch(BASTA_CLIENT_URL, {
+  const res = await fetch(`${BACKEND_URL}/api/basta/bid`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${params.bidderToken}`,
+      Authorization: `Bearer ${params.supabaseAccessToken}`,
     },
     body: JSON.stringify({
-      query: BID_ON_ITEM,
-      variables: {
-        saleId: params.saleId,
-        itemId: params.itemId,
-        amount: params.amount,
-        type: params.type,
-      },
+      saleId: params.saleId,
+      itemId: params.itemId,
+      amountCents: params.amount,
+      type: params.type,
     }),
   });
 
-  if (!res.ok) {
-    // Transport-level failure (5xx, network, CORS). Surface as an error-shaped
-    // result so the caller only ever has two branches to handle.
+  const body = (await res.json().catch(() => ({}))) as Partial<BastaBidResult> & {
+    error?: string;
+  };
+
+  if (!res.ok || body.ok !== true) {
     return {
       ok: false,
-      errorCode: `HTTP_${res.status}`,
-      error: `Basta Client API returned ${res.status}`,
-    };
-  }
-
-  const body = (await res.json()) as GraphQLResponse<BidOnItemResponse>;
-
-  if (body.errors && body.errors.length > 0) {
-    return {
-      ok: false,
-      errorCode: "GRAPHQL_ERROR",
-      error: body.errors.map((e) => e.message).join("; "),
-    };
-  }
-
-  const payload = body.data?.bidOnItem;
-  if (!payload) {
-    return {
-      ok: false,
-      errorCode: "EMPTY_RESPONSE",
-      error: "Basta returned no bidOnItem payload",
-    };
-  }
-
-  if (payload.__typename === "BidPlacedSuccess") {
-    return {
-      ok: true,
-      amount: payload.amount,
-      bidStatus: payload.bidStatus,
-      date: payload.date,
-      bidType: params.type,
+      errorCode: "errorCode" in body && body.errorCode ? body.errorCode : `HTTP_${res.status}`,
+      error: body.error ?? "Bid could not be placed.",
     };
   }
 
   return {
-    ok: false,
-    errorCode: payload.errorCode,
-    error: payload.error,
+    ok: true,
+    amount: body.amount!,
+    bidStatus: body.bidStatus!,
+    date: body.date!,
+    bidType: body.bidType ?? params.type,
   };
 }
 

@@ -2,7 +2,7 @@
 
 import { formatMoneyCents } from "@/lib/format";
 
-export type LiveBannerKind = "winning" | "outbid" | "sold" | "paused";
+export type LiveBannerKind = "winning" | "outbid" | "sold" | "passed" | "paused";
 
 export interface LiveStatusBannerProps {
   kind: LiveBannerKind;
@@ -34,6 +34,10 @@ export function LiveStatusBanner({
       winningPriceCents != null ? ` \u2014 ${formatMoneyCents(winningPriceCents)}` : "";
     const handle = winnerHandle ? ` to @${winnerHandle.replace(/^@/, "").toUpperCase()}` : "";
     label = `Sold${price}${handle}`;
+  } else if (kind === "passed") {
+    bg = "bg-black";
+    text = "text-white";
+    label = "Passed";
   } else {
     bg = "bg-[#5e5e5e]";
     text = "text-white";

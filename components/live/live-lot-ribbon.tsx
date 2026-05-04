@@ -5,7 +5,7 @@ import type { LotRibbonItem } from "@/lib/storefront-data";
 import { pad } from "@/lib/format";
 
 export interface LiveRibbonLot extends LotRibbonItem {
-  liveStatus: "upcoming" | "live" | "sold";
+  liveStatus: "upcoming" | "live" | "sold" | "passed";
 }
 
 export interface LiveLotRibbonProps {
@@ -47,16 +47,16 @@ function StatusChip({
   status,
   isNext,
 }: {
-  status: "upcoming" | "live" | "sold";
+  status: "upcoming" | "live" | "sold" | "passed";
   isNext: boolean;
 }) {
-  if (status === "sold") {
+  if (status === "sold" || status === "passed") {
     return (
       <span
         className="inline-flex items-center rounded-[2px] bg-[#848484] px-1.5 py-0.5 text-[10px] uppercase tracking-[-0.02em] text-white"
         style={{ fontFamily: "var(--storefront-font-mono)" }}
       >
-        Sold
+        {status === "passed" ? "Pass" : "Sold"}
       </span>
     );
   }
@@ -116,7 +116,7 @@ export function LiveLotRibbon({
       >
         {lots.map((lot, index) => {
           const isLive = lot.id === currentLotId;
-          const isSold = lot.liveStatus === "sold";
+          const isSold = lot.liveStatus === "sold" || lot.liveStatus === "passed";
           const isNext = lot.id === nextLotId && lot.liveStatus === "upcoming";
           const handleClick = onLotClick
             ? (e: React.MouseEvent) => {

@@ -32,6 +32,7 @@ async function start() {
       }
     },
     credentials: true,
+    methods: ["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
   });
 
   await fastify.register(healthRoutes);
