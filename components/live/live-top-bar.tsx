@@ -74,7 +74,7 @@ export function LiveTopBar({
   return (
     <div className="relative flex h-11 w-full shrink-0 items-center justify-between bg-black px-4 py-3">
       {/* Left cluster */}
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2 pr-20">
         <div className="h-[18px] w-[18px] shrink-0 overflow-hidden rounded-full bg-white/10">
           {tenantLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -86,7 +86,7 @@ export function LiveTopBar({
           ) : null}
         </div>
         <span
-          className="text-xs uppercase tracking-[-0.02em] text-white"
+          className="min-w-0 truncate text-xs uppercase tracking-[-0.02em] text-white"
           style={{ fontFamily: "var(--storefront-font-mono)" }}
         >
           {tenantName.toUpperCase()}
@@ -103,7 +103,7 @@ export function LiveTopBar({
       </div>
 
       {/* Center waveform */}
-      <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
+      <div className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 sm:block">
         <Waveform />
       </div>
 
