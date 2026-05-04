@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { config } from "../../config.js";
 import { requireSeller, requireAuctionOwnership } from "../../lib/auth.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { notifyAuctionStarting, notifyLotOnDeck } from "../../lib/sms-triggers.js";
@@ -34,6 +35,10 @@ export async function sellerSmsRoutes(fastify: FastifyInstance) {
       schema: { params: auctionParamSchema },
     },
     async (request, reply) => {
+      if (!config.smsEnabled) {
+        return reply.status(503).send({ error: "SMS alerts are temporarily disabled" });
+      }
+
       const seller = await requireSeller(request, reply);
       if (!seller) return;
 
@@ -60,6 +65,10 @@ export async function sellerSmsRoutes(fastify: FastifyInstance) {
       },
     },
     async (request, reply) => {
+      if (!config.smsEnabled) {
+        return reply.status(503).send({ error: "SMS alerts are temporarily disabled" });
+      }
+
       const seller = await requireSeller(request, reply);
       if (!seller) return;
 

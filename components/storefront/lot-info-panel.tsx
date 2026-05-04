@@ -10,6 +10,8 @@ import { PaymentModal } from "./payment-modal";
 import { ShippingModal } from "./shipping-modal";
 import { SmsSubscribeSheet } from "./sms-subscribe-sheet";
 
+const SMS_ENABLED = process.env.NEXT_PUBLIC_SMS_ENABLED === "true";
+
 interface LotInfoPanelProps {
   lot: StorefrontLotDetail;
   auction: StorefrontAuction;
@@ -51,7 +53,7 @@ export function LotInfoPanel({ lot, auction, isAuthenticated, lotIndex, totalLot
       <div className="flex h-full flex-col">
         <AuctionStatusBar
           scheduledDate={auction.scheduled_date}
-          onGetAlerted={() => setActiveModal("sms")}
+          onGetAlerted={SMS_ENABLED ? () => setActiveModal("sms") : undefined}
         />
         {/* Info section — scrollable */}
         <div className="min-h-0 flex-1 overflow-y-auto border-b border-[#f3f3f3] p-5">
@@ -85,11 +87,13 @@ export function LotInfoPanel({ lot, auction, isAuthenticated, lotIndex, totalLot
         onComplete={handleShippingComplete}
         onBack={handleBack}
       />
-      <SmsSubscribeSheet
-        isOpen={activeModal === "sms"}
-        onClose={() => setActiveModal("none")}
-        tenantId={tenantId}
-      />
+      {SMS_ENABLED && (
+        <SmsSubscribeSheet
+          isOpen={activeModal === "sms"}
+          onClose={() => setActiveModal("none")}
+          tenantId={tenantId}
+        />
+      )}
     </>
   );
 }

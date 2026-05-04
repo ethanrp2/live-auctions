@@ -2,13 +2,23 @@ import { config } from "../config.js";
 
 /**
  * Sends an SMS via Twilio REST API using raw fetch (no SDK).
- * If TWILIO_ACCOUNT_SID is not configured, logs a warning and returns (graceful no-op in dev).
+ * Disabled by default until Twilio phone verification/A2P is complete.
  */
 export async function sendSms(to: string, body: string): Promise<void> {
-  const { twilioAccountSid: sid, twilioAuthToken: authToken, twilioPhoneNumber: from } = config;
+  const {
+    smsEnabled,
+    twilioAccountSid: sid,
+    twilioAuthToken: authToken,
+    twilioPhoneNumber: from,
+  } = config;
 
-  if (!sid) {
-    console.warn("[sms] TWILIO_ACCOUNT_SID not configured — skipping SMS send");
+  if (!smsEnabled) {
+    console.warn("[sms] SMS_ENABLED is not true — skipping SMS send");
+    return;
+  }
+
+  if (!sid || !authToken || !from) {
+    console.warn("[sms] Twilio config incomplete — skipping SMS send");
     return;
   }
 

@@ -6,6 +6,7 @@ import { BastaLogo } from "./basta-logo";
 import { AuthModal } from "./auth-modal";
 import { PaymentModal } from "./payment-modal";
 import { ShippingModal } from "./shipping-modal";
+import { useUser } from "@/lib/hooks/use-user";
 
 interface LotHeaderProps {
   auctionTitle: string;
@@ -15,6 +16,7 @@ type ModalState = "none" | "auth" | "payment" | "shipping";
 
 export function LotHeader({ auctionTitle }: LotHeaderProps) {
   const [activeModal, setActiveModal] = useState<ModalState>("none");
+  const { user } = useUser();
 
   return (
     <>
@@ -42,7 +44,7 @@ export function LotHeader({ auctionTitle }: LotHeaderProps) {
           <BastaLogo />
         </Link>
 
-        {/* Register / Login button */}
+        {/* Account button */}
         <button
           type="button"
           onClick={() => setActiveModal("auth")}
@@ -62,7 +64,7 @@ export function LotHeader({ auctionTitle }: LotHeaderProps) {
             e.currentTarget.style.color = "var(--storefront-badge-text)";
           }}
         >
-          Register or Login
+          {user ? "Account" : "Register or Login"}
         </button>
       </header>
 

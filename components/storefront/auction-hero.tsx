@@ -4,6 +4,8 @@ import { formatLiveDate } from "@/lib/format";
 import { BastaLogo } from "./basta-logo";
 import { SmsSubscribe } from "./sms-subscribe";
 
+const SMS_ENABLED = process.env.NEXT_PUBLIC_SMS_ENABLED === "true";
+
 interface AuctionHeroProps {
   tenant: Tenant;
   auction: StorefrontAuction;
@@ -112,9 +114,11 @@ export function AuctionHero({ tenant, auction }: AuctionHeroProps) {
       </div>
 
       {/* Desktop SMS card — hidden on mobile */}
-      <div className="relative z-10 hidden lg:block">
-        <SmsSubscribe variant="desktop" primaryColor={primary} tenantId={tenant.id} />
-      </div>
+      {SMS_ENABLED && (
+        <div className="relative z-10 hidden lg:block">
+          <SmsSubscribe variant="desktop" primaryColor={primary} tenantId={tenant.id} />
+        </div>
+      )}
     </section>
   );
 }

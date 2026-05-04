@@ -21,6 +21,7 @@ export const config = {
   livekitApiSecret: process.env.LIVEKIT_API_SECRET ?? "",
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  smsEnabled: process.env.SMS_ENABLED === "true",
   twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? "",
   twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER ?? "",

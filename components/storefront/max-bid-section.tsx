@@ -51,10 +51,11 @@ export function MaxBidSection({
   const { session } = useUser();
   const [bidAmount, setBidAmount] = useState("");
   const [state, setState] = useState<BidState>({ status: "idle" });
+  const canBid = isAuthenticated || Boolean(session?.access_token);
 
   async function placeMaxBid() {
     // Auth gate — the modal flow in <LotInfoPanel> drives this.
-    if (!isAuthenticated || !session?.access_token) {
+    if (!canBid || !session?.access_token) {
       if (onAuthRequired) onAuthRequired();
       return;
     }

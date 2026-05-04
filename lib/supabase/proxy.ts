@@ -4,7 +4,7 @@ import { type NextRequest, NextResponse } from "next/server";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
 const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost";
-const cookieDomain = `.${rootDomain}`;
+const cookieDomain = rootDomain === "localhost" ? rootDomain : `.${rootDomain}`;
 
 /**
  * Creates a Supabase client for use in proxy.ts with cookie sync.

@@ -19,6 +19,54 @@ interface OrderRow {
   lot: { id: string; title: string | null } | null;
 }
 
+const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost";
+const BRIDGE_SESSION_KEY = "live-auctions:bridge-session";
+
+function cacheBridgeSession(session: {
+  access_token: string;
+  refresh_token: string;
+  expires_at?: number;
+} | null) {
+  if (typeof window === "undefined") return;
+  if (window.location.hostname !== ROOT_DOMAIN) return;
+
+  if (!session) {
+    window.localStorage.removeItem(BRIDGE_SESSION_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(
+    BRIDGE_SESSION_KEY,
+    JSON.stringify({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: session.expires_at,
+    })
+  );
+}
+
+function houseUrl(slug: string): string {
+  if (typeof window === "undefined") {
+    return `http://${slug}.${ROOT_DOMAIN}:3000`;
+  }
+  const port = window.location.port ? `:${window.location.port}` : "";
+  return `${window.location.protocol}//${slug}.${ROOT_DOMAIN}${port}`;
+}
+
+function withLocalSessionHash(url: string, session: {
+  access_token: string;
+  refresh_token: string;
+} | null): string {
+  if (ROOT_DOMAIN !== "localhost" || !session) return url;
+  const payload = btoa(
+    JSON.stringify({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    })
+  );
+  return `${url}#la_session=${payload}`;
+}
+
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("en-US", {
@@ -73,7 +121,19 @@ function LoggedInDashboard({ user }: { user: User }) {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    cacheBridgeSession(null);
     window.location.reload();
+  };
+
+  const handleHouseVisit = async (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    slug: string
+  ) => {
+    event.preventDefault();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    window.location.href = withLocalSessionHash(houseUrl(slug), session);
   };
 
   const name = displayName ?? user.email?.split("@")[0] ?? "Buyer";
@@ -153,7 +213,8 @@ function LoggedInDashboard({ user }: { user: User }) {
                       {group.tenantName}
                     </span>
                     <a
-                      href={`http://${group.tenantSlug}.localhost:3000`}
+                      href={houseUrl(group.tenantSlug)}
+                      onClick={(event) => handleHouseVisit(event, group.tenantSlug)}
                       className="text-[10px] uppercase tracking-widest text-black/30 underline hover:text-black"
                     >
                       VISIT →
@@ -212,7 +273,8 @@ function LoggedInDashboard({ user }: { user: User }) {
             ].map((h) => (
               <a
                 key={h.slug}
-                href={`http://${h.slug}.localhost:3000`}
+                href={houseUrl(h.slug)}
+                onClick={(event) => handleHouseVisit(event, h.slug)}
                 className="inline-flex h-[40px] items-center rounded-[4px] border border-[#f3f3f3] px-4 text-[11px] uppercase tracking-widest text-black transition-colors hover:border-black"
               >
                 {h.name} →
@@ -241,12 +303,19 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
+        cacheBridgeSession(data.session);
         setError("Check your email to confirm your account.");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        cacheBridgeSession(data.session);
+        const next = new URLSearchParams(window.location.search).get("next");
+        if (next) {
+          window.location.href = withLocalSessionHash(next, data.session);
+          return;
+        }
         onSuccess();
       }
     } catch (err) {

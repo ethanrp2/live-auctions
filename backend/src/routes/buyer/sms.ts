@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { config } from "../../config.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 
 const smsSubscribeBodySchema = {
@@ -22,6 +23,10 @@ export async function buyerSmsRoutes(fastify: FastifyInstance) {
       schema: { body: smsSubscribeBodySchema },
     },
     async (request, reply) => {
+      if (!config.smsEnabled) {
+        return reply.status(503).send({ error: "SMS alerts are temporarily disabled" });
+      }
+
       const { phone, tenantId } = request.body;
 
       if (!E164_REGEX.test(phone)) {
