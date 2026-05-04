@@ -1,12 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
 import { ModalOverlay } from "./modal-overlay";
+import { AccountPanel, type AccountPanelUser } from "./account-panel";
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onComplete: () => void;
+}
+
+interface ProfileRow {
+  display_name: string | null;
+  avatar_url: string | null;
 }
 
 function GoogleIcon() {
@@ -45,6 +53,34 @@ function AppleIcon() {
 
 export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
   const [email, setEmail] = useState("");
+  const supabase = useMemo(() => createClient(), []);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<ProfileRow | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (cancelled) return;
+      setCurrentUser(user);
+      if (user) {
+        const { data } = await supabase
+          .from("profiles")
+          .select("display_name, avatar_url")
+          .eq("id", user.id)
+          .maybeSingle<ProfileRow>();
+        if (!cancelled) setProfile(data ?? null);
+      } else {
+        setProfile(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, supabase]);
 
   const handleContinue = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +88,18 @@ export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
       onComplete();
     }
   };
+
+  // If user is already signed in, render the Account panel instead of the
+  // login form.
+  if (currentUser) {
+    const accountUser: AccountPanelUser = {
+      id: currentUser.id,
+      email: currentUser.email ?? null,
+      display_name: profile?.display_name ?? null,
+      avatar_url: profile?.avatar_url ?? null,
+    };
+    return <AccountPanel isOpen={isOpen} onClose={onClose} user={accountUser} />;
+  }
 
   return (
     <ModalOverlay isOpen={isOpen} onClose={onClose}>

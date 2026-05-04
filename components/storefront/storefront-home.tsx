@@ -41,7 +41,7 @@ export async function StorefrontHome({ tenant, user }: StorefrontHomeProps) {
       </main>
 
       {/* Mobile SMS overlay — fixed to bottom, hidden on desktop */}
-      <SmsSubscribe variant="mobile" primaryColor={primary} />
+      <SmsSubscribe variant="mobile" primaryColor={primary} tenantId={tenant.id} />
     </div>
   );
 }

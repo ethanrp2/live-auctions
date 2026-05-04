@@ -7,7 +7,12 @@ import { bastaBidSupportRoutes } from "./routes/basta-bid-support.js";
 import { auctionCurrentStateRoutes } from "./routes/auction-current-state.js";
 import { bastaWebhookRoutes } from "./routes/webhooks/basta.js";
 import { sellerRoutes } from "./routes/seller/index.js";
+import { consoleSellerRoutes } from "./routes/seller/console.js";
 import { sellerOnboardingRoutes } from "./routes/seller-onboarding.js";
+import { livekitTokenRoutes } from "./routes/livekit-token.js";
+import { buyerPaymentRoutes } from "./routes/buyer/payment.js";
+import { buyerSmsRoutes } from "./routes/buyer/sms.js";
+import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { config } from "./config.js";
 
 const fastify = Fastify({ logger: true });
@@ -35,7 +40,14 @@ async function start() {
   await fastify.register(auctionCurrentStateRoutes);
   await fastify.register(bastaWebhookRoutes);
   await fastify.register(sellerRoutes);
+  await fastify.register(consoleSellerRoutes);
   await fastify.register(sellerOnboardingRoutes);
+  await fastify.register(livekitTokenRoutes);
+  await fastify.register(buyerPaymentRoutes);
+  await fastify.register(buyerSmsRoutes);
+  // Stripe webhook is registered as its own plugin so its raw-body content
+  // type parser is encapsulated and doesn't affect other routes.
+  await fastify.register(stripeWebhookRoutes);
 
   await fastify.listen({ port: config.port, host: "0.0.0.0" });
 }

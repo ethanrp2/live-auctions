@@ -9,6 +9,7 @@ import type { BidIncrementRule } from "@/lib/basta/bid-support";
 import { bidErrorMessage } from "@/lib/basta/client";
 import { placeBidForLot, computeNextBidAmountCents } from "@/lib/basta/place-bid";
 import { LiveTopBar } from "@/components/live/live-top-bar";
+import { LiveKitReceiver } from "@/components/live/livekit-receiver";
 import {
   LiveLotRibbon,
   type LiveRibbonLot,
@@ -265,12 +266,18 @@ export function LiveAuctionView({ auction, lots }: Props) {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-white text-black">
-      <LiveTopBar
-        tenantName={auction.title}
-        tenantLogoUrl={null}
-        viewerCount={null}
-        onMenu={() => {}}
-      />
+      <div className="relative">
+        <LiveTopBar
+          tenantName={auction.title}
+          tenantLogoUrl={null}
+          viewerCount={null}
+          onMenu={() => {}}
+        />
+        {/* LiveKit audio receiver — absolute-positioned inside top bar */}
+        <div className="pointer-events-auto absolute right-10 top-1/2 -translate-y-1/2">
+          <LiveKitReceiver auctionId={auction.id} />
+        </div>
+      </div>
 
       {currentLot ? (
         <>

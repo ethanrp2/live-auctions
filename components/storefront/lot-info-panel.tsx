@@ -16,11 +16,12 @@ interface LotInfoPanelProps {
   isAuthenticated: boolean;
   lotIndex: number;
   totalLots: number;
+  tenantId: string;
 }
 
 type ModalState = "none" | "auth" | "payment" | "shipping" | "sms";
 
-export function LotInfoPanel({ lot, auction, isAuthenticated, lotIndex, totalLots }: LotInfoPanelProps) {
+export function LotInfoPanel({ lot, auction, isAuthenticated, lotIndex, totalLots, tenantId }: LotInfoPanelProps) {
   const [activeModal, setActiveModal] = useState<ModalState>("none");
 
   const handleAuthRequired = () => {
@@ -87,6 +88,7 @@ export function LotInfoPanel({ lot, auction, isAuthenticated, lotIndex, totalLot
       <SmsSubscribeSheet
         isOpen={activeModal === "sms"}
         onClose={() => setActiveModal("none")}
+        tenantId={tenantId}
       />
     </>
   );

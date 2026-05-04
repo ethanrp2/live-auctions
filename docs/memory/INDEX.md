@@ -36,7 +36,12 @@ Read [SCHEMA.md](SCHEMA.md) first if you're new here or haven't touched this in 
 
 - [glossary/auction-terms.md](glossary/auction-terms.md) — auction-domain terms I might forget.
 
+## Decisions (ADRs — one file per accepted decision)
+
+- [decisions/ADR-003-shipping-record-only.md](decisions/ADR-003-shipping-record-only.md) — MVP shipping is record-keeping only; no Shippo. Sellers view winner info in the console.
+
 ## Sessions (end-of-session handoffs — newest at top)
 
+- [sessions/2026-05-03.md](sessions/2026-05-03.md) — **doc consolidation**: merged frosty-feynman→festive-curie, wrote LIVE_AUCTIONS_PLAN.md + WORKING_NOTES.md, updated AGENTS.md. Starting M4 seller console.
 - [sessions/2026-04-22.md](sessions/2026-04-22.md) — **M3 complete**: live buyer screen wired to Basta `saleUpdates` WS + Supabase Realtime bid feed + NORMAL `bidOnItem` + `<AuthModal>`.
 - [sessions/2026-04-21.md](sessions/2026-04-21.md) — gap analysis + plan + memory seed + **M0 shipped** (money migration, format.ts cents API, env examples, bootstrap) + **M1 shipped** (real MAX-bid path: Basta Client API wrapper, bid-support endpoint, increment-table mirror, support-email draft) + **M2 shipped** (webhook ingestion: BidOnItem / SaleStatusChanged / ItemsStatusChanged with idempotency + audit trail, smoke-tested end-to-end) + **M3 in progress** (live buyer screen plumbing shipped in parallel across a team of agents).

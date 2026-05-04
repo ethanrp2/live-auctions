@@ -16,4 +16,12 @@ export const config = {
   signedUploadExpiresInSeconds: Number(
     process.env.SIGNED_UPLOAD_EXPIRES_IN_SECONDS ?? 1800
   ),
+  livekitUrl: process.env.LIVEKIT_URL ?? "",
+  livekitApiKey: process.env.LIVEKIT_API_KEY ?? "",
+  livekitApiSecret: process.env.LIVEKIT_API_SECRET ?? "",
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+  twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER ?? "",
 };

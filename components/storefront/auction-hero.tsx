@@ -113,7 +113,7 @@ export function AuctionHero({ tenant, auction }: AuctionHeroProps) {
 
       {/* Desktop SMS card — hidden on mobile */}
       <div className="relative z-10 hidden lg:block">
-        <SmsSubscribe variant="desktop" primaryColor={primary} />
+        <SmsSubscribe variant="desktop" primaryColor={primary} tenantId={tenant.id} />
       </div>
     </section>
   );
