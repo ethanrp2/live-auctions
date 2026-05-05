@@ -1,0 +1,699 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useUser } from "@/lib/hooks/use-user";
+import { useSaleActivity } from "@/lib/hooks/use-sale-activity";
+import { useBidFeed } from "@/lib/hooks/use-bid-feed";
+import { createClient } from "@/lib/supabase/client";
+import type { BidFeedRow } from "@/lib/hooks/use-bid-feed";
+import type { BidIncrementRule } from "@/lib/basta/bid-support";
+import { bidErrorMessage } from "@/lib/basta/client";
+import { placeBidForLot, computeNextBidAmountCents } from "@/lib/basta/place-bid";
+import { LiveTopBar } from "@/components/live/live-top-bar";
+import { LiveKitReceiver } from "@/components/live/livekit-receiver";
+import {
+  LiveLotRibbon,
+  type LiveRibbonLot,
+} from "@/components/live/live-lot-ribbon";
+import { LiveLotHero } from "@/components/live/live-lot-hero";
+import {
+  LiveBidHistory,
+  type BidFeedEntry,
+} from "@/components/live/live-bid-history";
+import {
+  LiveBidFooter,
+  type LiveViewerState,
+} from "@/components/live/live-bid-footer";
+import { LiveStatusBanner } from "@/components/live/live-status-banner";
+import { LiveCustomBidSheet } from "@/components/live/live-custom-bid-sheet";
+import { MaxBidSheet } from "@/components/live/max-bid-sheet";
+import { LotInfo } from "@/components/storefront/lot-info";
+import type { StorefrontLotDetail } from "@/lib/storefront-data";
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+
+export interface AuctionData {
+  id: string;
+  title: string;
+  status: string | null;
+  bastaSaleId: string | null;
+  bidIncrementTable: unknown;
+  closingTimeCountdownMs: number | null;
+  currentLotId: string | null;
+}
+
+export interface LotData {
+  id: string;
+  title: string;
+  images: string[];
+  startingBid: number | null;
+  sortOrder: number | null;
+  liveStatus: string | null;
+  bastaItemId: string | null;
+  estimateLow: number | null;
+  estimateHigh: number | null;
+  description: string | null;
+  conditionReport: string | null;
+  tags: string[];
+}
+
+interface Props {
+  auction: AuctionData;
+  lots: LotData[];
+}
+
+interface BuyerQuestion {
+  id: string;
+  questionText: string;
+  answerText: string | null;
+  createdAt: string;
+  dismissed: boolean;
+}
+
+function coerceIncrementTable(raw: unknown): BidIncrementRule[] | null {
+  if (!Array.isArray(raw)) return null;
+  const rules: BidIncrementRule[] = [];
+  for (const item of raw) {
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof (item as BidIncrementRule).lowRange === "number" &&
+      typeof (item as BidIncrementRule).highRange === "number" &&
+      typeof (item as BidIncrementRule).step === "number"
+    ) {
+      rules.push(item as BidIncrementRule);
+    }
+  }
+  return rules.length > 0 ? rules : null;
+}
+
+function normalizeLiveStatus(
+  status: string | null
+): "upcoming" | "live" | "sold" | "passed" {
+  if (status === "live" || status === "closing") return "live";
+  if (status === "passed") return "passed";
+  if (status === "sold" || status === "closed") return "sold";
+  return "upcoming";
+}
+
+function lotToStorefrontDetail(lot: LotData): StorefrontLotDetail {
+  return {
+    id: lot.id,
+    title: lot.title,
+    images: lot.images,
+    brand: lot.tags.length > 0 ? lot.tags[0] : null,
+    estimate_low: lot.estimateLow,
+    estimate_high: lot.estimateHigh,
+    starting_bid: lot.startingBid,
+    sort_order: lot.sortOrder,
+    description: lot.description,
+    condition_report: lot.conditionReport,
+    measurements: null,
+    year: null,
+    provenance: null,
+    item_location: null,
+    shipping_terms: null,
+    tags: lot.tags,
+  };
+}
+
+function bidRowToFeedEntry(
+  row: BidFeedRow,
+  meUserId: string | null
+): BidFeedEntry {
+  return {
+    id: row.id,
+    userId: row.userId ?? "",
+    handle: row.displayName,
+    amountCents: row.amountCents,
+    placedAt: row.placedAt,
+    isCurrentUser: !!meUserId && row.userId === meUserId,
+  };
+}
+
+export function LiveAuctionView({ auction, lots }: Props) {
+  const { user, session } = useUser();
+  const { updates } = useSaleActivity(auction.bastaSaleId ?? null);
+  const [currentLotId, setCurrentLotId] = useState<string | null>(
+    auction.currentLotId
+  );
+  const [lotStatusOverrides, setLotStatusOverrides] = useState<
+    Record<string, string | null>
+  >({});
+
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`live:auction-state:${auction.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "auctions",
+          filter: `id=eq.${auction.id}`,
+        },
+        (payload) => {
+          const next = payload.new as { current_lot_id?: string | null };
+          if ("current_lot_id" in next) {
+            setCurrentLotId(next.current_lot_id ?? null);
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "lots",
+          filter: `auction_id=eq.${auction.id}`,
+        },
+        (payload) => {
+          const next = payload.new as { id?: string; live_status?: string | null };
+          if (next.id) {
+            setLotStatusOverrides((prev) => ({
+              ...prev,
+              [next.id as string]: next.live_status ?? null,
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [auction.id]);
+
+  const liveLots = useMemo(
+    () =>
+      lots.map((lot) => ({
+        ...lot,
+        liveStatus: lotStatusOverrides[lot.id] ?? lot.liveStatus,
+      })),
+    [lots, lotStatusOverrides]
+  );
+
+  const currentLot = useMemo(
+    () => liveLots.find((l) => l.id === currentLotId) ?? liveLots[0] ?? null,
+    [liveLots, currentLotId]
+  );
+
+  const currentBastaItemId = currentLot?.bastaItemId ?? null;
+  const liveForCurrent = currentBastaItemId
+    ? updates.get(currentBastaItemId)
+    : undefined;
+
+  const incrementTable = useMemo(
+    () => coerceIncrementTable(auction.bidIncrementTable),
+    [auction.bidIncrementTable]
+  );
+
+  const { bids } = useBidFeed(currentLot?.id ?? null);
+
+  const latestBidCents = bids[0]?.amountCents ?? null;
+  const currentBidCents = liveForCurrent?.currentBid ?? latestBidCents;
+
+  const nextBidCents = useMemo(
+    () =>
+      computeNextBidAmountCents(
+        currentBidCents ?? 0,
+        incrementTable,
+        currentLot?.startingBid ?? 0
+      ),
+    [currentBidCents, incrementTable, currentLot?.startingBid]
+  );
+
+  const iAmLeader = useMemo(() => {
+    if (!user || bids.length === 0) return false;
+    return bids[0].userId === user.id;
+  }, [bids, user]);
+
+  const [isPlacing, setIsPlacing] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [customSheetOpen, setCustomSheetOpen] = useState(false);
+  const [maxSheetOpen, setMaxSheetOpen] = useState(false);
+  const [questionSheetOpen, setQuestionSheetOpen] = useState(false);
+  const [myQuestions, setMyQuestions] = useState<BuyerQuestion[]>([]);
+  const [hasBidOnThisLot, setHasBidOnThisLot] = useState(false);
+
+  const loadMyQuestions = useCallback(async () => {
+    if (!session?.access_token) {
+      setMyQuestions([]);
+      return;
+    }
+
+    const res = await fetch(
+      `${BACKEND_URL}/api/auctions/${auction.id}/questions/mine`,
+      {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      }
+    );
+    if (!res.ok) return;
+    const data = (await res.json()) as { questions?: BuyerQuestion[] };
+    setMyQuestions(data.questions ?? []);
+  }, [auction.id, session?.access_token]);
+
+  useEffect(() => {
+    void loadMyQuestions();
+    if (!session?.access_token) return;
+
+    const id = window.setInterval(() => {
+      void loadMyQuestions();
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [loadMyQuestions, session?.access_token]);
+
+  useEffect(() => {
+    setHasBidOnThisLot(false);
+    setLastError(null);
+  }, [currentLot?.id]);
+
+  const itemStatus = liveForCurrent?.status ?? null;
+  const isPassed = currentLot?.liveStatus === "passed";
+  const isSold =
+    itemStatus === "CLOSED" ||
+    currentLot?.liveStatus === "sold" ||
+    currentLot?.liveStatus === "closed";
+
+  const viewerState: LiveViewerState = useMemo(() => {
+    if (isPassed) return { kind: "passed" };
+    if (isSold) {
+      const winnerHandle = bids[0]?.displayName ?? "\u2014";
+      const winningPriceCents =
+        liveForCurrent?.currentBid ?? bids[0]?.amountCents ?? 0;
+      return { kind: "sold", winnerHandle, winningPriceCents };
+    }
+    if (iAmLeader) return { kind: "winning" };
+    if (hasBidOnThisLot && !iAmLeader) return { kind: "outbid" };
+    return { kind: "idle" };
+  }, [isPassed, isSold, iAmLeader, hasBidOnThisLot, bids, liveForCurrent?.currentBid]);
+
+  const countdownMs = useMemo(() => {
+    const secs = liveForCurrent?.timeRemaining ?? null;
+    return secs == null ? null : secs * 1000;
+  }, [liveForCurrent?.timeRemaining]);
+
+  const bannerKind: "winning" | "outbid" | "sold" | "passed" | "paused" | null = useMemo(() => {
+    if (viewerState.kind === "idle") return null;
+    return viewerState.kind;
+  }, [viewerState]);
+
+  const ribbonLots: LiveRibbonLot[] = useMemo(
+    () =>
+      liveLots.map((l) => ({
+        id: l.id,
+        title: l.title,
+        thumbnail: l.images[0] ?? null,
+        sort_order: l.sortOrder,
+        liveStatus: normalizeLiveStatus(l.liveStatus),
+      })),
+    [liveLots]
+  );
+
+  const nextLotId = useMemo(() => {
+    if (!currentLot || currentLot.sortOrder == null) return null;
+    return (
+      liveLots.find((l) => l.sortOrder === (currentLot.sortOrder ?? 0) + 1)
+        ?.id ?? null
+    );
+  }, [liveLots, currentLot]);
+
+  const bidFeedEntries: BidFeedEntry[] = useMemo(
+    () => bids.map((b) => bidRowToFeedEntry(b, user?.id ?? null)),
+    [bids, user?.id]
+  );
+
+  const lotIndex = useMemo(() => {
+    if (!currentLot) return 1;
+    const idx = liveLots.findIndex((l) => l.id === currentLot.id);
+    return idx >= 0 ? idx + 1 : 1;
+  }, [liveLots, currentLot]);
+
+  async function handleOneTapBid(): Promise<void> {
+    setLastError(null);
+
+    if (!session?.access_token) {
+      setLastError("Please sign in to place a bid.");
+      return;
+    }
+    if (!currentLot) {
+      setLastError("No lot is currently live.");
+      return;
+    }
+    if (nextBidCents == null) {
+      setLastError("Cannot determine next bid amount.");
+      return;
+    }
+
+    setIsPlacing(true);
+    try {
+      const result = await placeBidForLot({
+        lotId: currentLot.id,
+        type: "NORMAL",
+        amountCents: nextBidCents,
+        supabaseAccessToken: session.access_token,
+      });
+      if (!result.ok) {
+        setLastError(bidErrorMessage(result.errorCode, result.error));
+        return;
+      }
+      setHasBidOnThisLot(true);
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : "Bid failed.");
+    } finally {
+      setIsPlacing(false);
+    }
+  }
+
+  async function handleAskQuestion(questionText: string): Promise<void> {
+    if (!session?.access_token) {
+      throw new Error("Please sign in to ask a question.");
+    }
+
+    const res = await fetch(`${BACKEND_URL}/api/auctions/${auction.id}/questions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ questionText }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      throw new Error(data.error ?? `Question failed (${res.status})`);
+    }
+    await loadMyQuestions();
+  }
+
+  return (
+    <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-white text-black">
+      <div className="relative">
+        <LiveTopBar
+          tenantName={auction.title}
+          tenantLogoUrl={null}
+          viewerCount={null}
+          onMenu={() => {}}
+        />
+        {/* LiveKit audio receiver — absolute-positioned inside top bar */}
+        <div className="pointer-events-auto absolute right-10 top-1/2 -translate-y-1/2">
+          <LiveKitReceiver auctionId={auction.id} />
+        </div>
+      </div>
+
+      {currentLot ? (
+        <>
+          <LiveLotRibbon
+            lots={ribbonLots}
+            currentLotId={currentLot.id}
+            nextLotId={nextLotId}
+          />
+
+          <LiveLotHero
+            images={currentLot.images}
+            title={currentLot.title}
+            onAskQuestion={() => setQuestionSheetOpen(true)}
+          />
+
+          {bannerKind && (
+            <LiveStatusBanner
+              kind={bannerKind}
+              winnerHandle={
+                viewerState.kind === "sold" ? viewerState.winnerHandle : undefined
+              }
+              winningPriceCents={
+                viewerState.kind === "sold"
+                  ? viewerState.winningPriceCents
+                  : undefined
+              }
+            />
+          )}
+
+          <div className="p-5">
+            <LotInfo
+              lot={lotToStorefrontDetail(currentLot)}
+              lotIndex={lotIndex}
+              totalLots={lots.length}
+            />
+          </div>
+
+          <LiveBidHistory
+            bids={bidFeedEntries}
+            totalCount={bidFeedEntries.length}
+            onViewAll={() => {}}
+          />
+
+          <BuyerQuestionsPanel questions={myQuestions} />
+
+          <LiveBidFooter
+            currentBidCents={currentBidCents}
+            nextIncrementBidCents={nextBidCents}
+            countdownMs={countdownMs}
+            viewerState={viewerState}
+            onOneTapBid={handleOneTapBid}
+            onOpenCustomBid={() => setCustomSheetOpen(true)}
+            onOpenMaxBid={() => setMaxSheetOpen(true)}
+            isPlacing={isPlacing}
+            lastError={lastError}
+          />
+
+          <LiveCustomBidSheet
+            isOpen={customSheetOpen}
+            onClose={() => setCustomSheetOpen(false)}
+            lotId={currentLot.id}
+            startingBidCents={currentLot.startingBid}
+            minNextBidCents={nextBidCents}
+            onSubmitted={() => {
+              setHasBidOnThisLot(true);
+              setCustomSheetOpen(false);
+            }}
+          />
+
+          <MaxBidSheet
+            isOpen={maxSheetOpen}
+            onClose={() => setMaxSheetOpen(false)}
+            lotId={currentLot.id}
+            startingBidCents={currentLot.startingBid ?? 0}
+            isAuthenticated={!!session}
+            onAuthRequired={() => {}}
+          />
+
+          <LiveQuestionSheet
+            isOpen={questionSheetOpen}
+            onClose={() => setQuestionSheetOpen(false)}
+            isAuthenticated={!!session}
+            questions={myQuestions}
+            onSubmit={handleAskQuestion}
+          />
+        </>
+      ) : (
+        <div className="flex flex-1 items-center justify-center p-6 text-sm text-[#5e5e5e]">
+          No lots in this auction.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BuyerQuestionsPanel({ questions }: { questions: BuyerQuestion[] }) {
+  if (questions.length === 0) return null;
+
+  const visible = questions.slice(0, 3);
+  return (
+    <section
+      className="border-b border-[#f3f3f3] px-5 py-4"
+      style={{ fontFamily: "var(--storefront-font-mono)" }}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-xs uppercase tracking-[-0.02em] text-black">
+          Your Questions
+        </span>
+        <span className="text-[11px] uppercase tracking-[-0.02em] text-[#9c9c9c]">
+          {questions.length}
+        </span>
+      </div>
+      <div className="flex flex-col gap-3">
+        {visible.map((question) => (
+          <div key={question.id} className="border border-[#f3f3f3] p-3">
+            <p
+              className="text-[12px] leading-5 text-black"
+              style={{ fontFamily: "var(--storefront-font-display)" }}
+            >
+              {question.questionText}
+            </p>
+            {question.answerText ? (
+              <div className="mt-3 border-l-2 border-black pl-3">
+                <p className="text-[10px] uppercase tracking-[-0.02em] text-[#5e5e5e]">
+                  Seller Answer
+                </p>
+                <p
+                  className="mt-1 text-[12px] leading-5 text-black"
+                  style={{ fontFamily: "var(--storefront-font-display)" }}
+                >
+                  {question.answerText}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-2 text-[10px] uppercase tracking-[-0.02em] text-[#9c9c9c]">
+                Awaiting seller answer
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LiveQuestionSheet({
+  isOpen,
+  onClose,
+  isAuthenticated,
+  questions,
+  onSubmit,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  isAuthenticated: boolean;
+  questions: BuyerQuestion[];
+  onSubmit: (questionText: string) => Promise<void>;
+}) {
+  const [input, setInput] = useState("");
+  const [status, setStatus] = useState<"idle" | "submitting" | "sent">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  function handleClose() {
+    setInput("");
+    setStatus("idle");
+    setError(null);
+    onClose();
+  }
+
+  const trimmed = input.trim();
+  const canSubmit = isAuthenticated && trimmed.length >= 3 && status !== "submitting";
+
+  async function handleSubmit() {
+    if (!isAuthenticated) {
+      setError("Please sign in to ask a question.");
+      return;
+    }
+    if (trimmed.length < 3) {
+      setError("Enter a question for the seller.");
+      return;
+    }
+
+    setStatus("submitting");
+    setError(null);
+    try {
+      await onSubmit(trimmed);
+      setInput("");
+      setStatus("sent");
+    } catch (err) {
+      setStatus("idle");
+      setError(err instanceof Error ? err.message : "Question failed.");
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+      onClick={handleClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="flex max-h-[88vh] w-full max-w-xl flex-col gap-4 overflow-y-auto rounded-t-lg bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        onClick={(event) => event.stopPropagation()}
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm uppercase tracking-[-0.02em] text-black">
+            Ask The Seller
+          </h2>
+          <button
+            type="button"
+            onClick={handleClose}
+            className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e] transition-colors hover:text-black"
+          >
+            Close
+          </button>
+        </div>
+
+        <textarea
+          value={input}
+          onChange={(event) => {
+            setInput(event.target.value);
+            setStatus("idle");
+            setError(null);
+          }}
+          disabled={status === "submitting"}
+          maxLength={1000}
+          rows={4}
+          placeholder="Ask about condition, provenance, shipping, or pickup."
+          className="min-h-[112px] w-full resize-none border border-[#bababa] bg-white p-3 text-sm tracking-[-0.02em] text-black outline-none placeholder:text-[#9c9c9c] focus:border-black"
+          style={{ fontFamily: "var(--storefront-font-display)" }}
+        />
+
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className="flex h-[50px] items-center justify-center rounded-[2px] bg-black transition-opacity hover:opacity-90 disabled:opacity-60"
+        >
+          <span className="text-sm uppercase tracking-[-0.02em] text-white">
+            {status === "submitting" ? "Sending" : "Send Question"}
+          </span>
+        </button>
+
+        {status === "sent" && (
+          <p className="text-center text-xs text-[#00a65a]" role="status">
+            Question sent to the seller.
+          </p>
+        )}
+        {error && (
+          <p className="text-center text-xs text-[#c11]" role="alert">
+            {error}
+          </p>
+        )}
+
+        {questions.length > 0 && (
+          <div className="border-t border-[#f3f3f3] pt-4">
+            <p className="mb-3 text-xs uppercase tracking-[-0.02em] text-black">
+              Recent Questions
+            </p>
+            <div className="flex flex-col gap-3">
+              {questions.slice(0, 5).map((question) => (
+                <div key={question.id} className="border border-[#f3f3f3] p-3">
+                  <p
+                    className="text-[12px] leading-5 text-black"
+                    style={{ fontFamily: "var(--storefront-font-display)" }}
+                  >
+                    {question.questionText}
+                  </p>
+                  {question.answerText ? (
+                    <p
+                      className="mt-2 text-[12px] leading-5 text-black"
+                      style={{ fontFamily: "var(--storefront-font-display)" }}
+                    >
+                      <span className="font-medium">Seller:</span>{" "}
+                      {question.answerText}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-[10px] uppercase tracking-[-0.02em] text-[#9c9c9c]">
+                      Awaiting seller answer
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

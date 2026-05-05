@@ -1,46 +1,66 @@
 /**
  * Shared formatting utilities for storefront components.
  *
- * Money convention: all integer amounts in the DB and in Basta are CENTS.
- * `formatMoney` and `formatEstimate` take cents and render dollars.
+ * Money convention: ALL money values in this codebase are integer cents.
+ * See docs/memory/architecture/money-units.md and
+ * docs/memory/decisions/ADR-002-money-in-cents.md.
+ *
+ * Formatter names explicitly include `Cents` so a typo like
+ * `formatMoneyCents(1250)` (= $12.50) is obvious to the reader, instead of
+ * silently rendering $1,250 from a value that was supposed to be dollars.
  */
 
 export function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-export function formatMoney(cents: number | null): string {
-  if (cents == null) return "\u2014";
-  return `$${(Math.round(cents) / 100).toLocaleString("en-US", {
-    minimumFractionDigits: 0,
+function formatDollars(dollars: number): string {
+  if (Number.isInteger(dollars)) {
+    return `$${dollars.toLocaleString("en-US")}`;
+  }
+  return `$${dollars.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
 
-export function formatEstimate(
-  lowCents: number | null,
-  highCents: number | null
+/**
+ * Format an integer-cents amount as a dollar string.
+ * Whole dollars render with no decimals ($1,250). Fractional renders with two.
+ */
+export function formatMoneyCents(cents: number | null | undefined): string {
+  if (cents == null) return "\u2014";
+  return formatDollars(cents / 100);
+}
+
+/**
+ * Format an estimate range (both values in cents). Accepts either side null.
+ */
+export function formatEstimateCents(
+  lowCents: number | null | undefined,
+  highCents: number | null | undefined
 ): string {
   if (lowCents == null && highCents == null) return "\u2014";
   if (lowCents != null && highCents != null && lowCents === highCents) {
-    return formatMoney(lowCents);
+    return formatMoneyCents(lowCents);
   }
   if (lowCents != null && highCents != null) {
-    return `${formatMoney(lowCents)} \u2013 ${formatMoney(highCents)}`;
+    return `${formatMoneyCents(lowCents)} \u2013 ${formatMoneyCents(highCents)}`;
   }
-  return formatMoney(lowCents ?? highCents);
+  return formatMoneyCents(lowCents ?? highCents ?? null);
 }
 
-export function dollarsInputToCents(input: string): number | null {
-  const cleaned = input.replace(/[\s,$]/g, "").trim();
-  if (!cleaned) return null;
-  const dollars = Number(cleaned);
-  if (!Number.isFinite(dollars) || dollars < 0) return null;
+/**
+ * Parse a user-entered dollar string (`"$1,250"`, `"1250.50"`, etc.) into
+ * integer cents. Throws on invalid input; callers should validate.
+ */
+export function parseDollarsToCents(input: string): number {
+  const cleaned = input.replace(/[^0-9.]/g, "");
+  const dollars = parseFloat(cleaned);
+  if (!Number.isFinite(dollars) || dollars < 0) {
+    throw new Error(`Invalid money input: ${JSON.stringify(input)}`);
+  }
   return Math.round(dollars * 100);
-}
-
-export function centsToDollarsString(cents: number): string {
-  return (cents / 100).toFixed(2);
 }
 
 export function formatLiveDate(iso: string): string {

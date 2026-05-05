@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
 const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost";
-const cookieDomain = `.${rootDomain}`;
+const cookieDomain = rootDomain === "localhost" ? undefined : `.${rootDomain}`;
 
 export const createClient = async () => {
   const cookieStore = await cookies();
@@ -19,7 +19,7 @@ export const createClient = async () => {
           cookiesToSet.forEach(({ name, value, options }) =>
             cookieStore.set(name, value, {
               ...options,
-              domain: cookieDomain,
+              ...(cookieDomain ? { domain: cookieDomain } : {}),
             })
           );
         } catch {

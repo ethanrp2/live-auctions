@@ -12,8 +12,17 @@ export const config = {
   bastaBidderTokenTtlMinutes: Number(
     process.env.BASTA_BIDDER_TOKEN_TTL_MINUTES ?? 60
   ),
-  bastaLotDurationMs: Number(process.env.BASTA_LOT_DURATION_MS ?? 120_000),
+  bastaLotDurationMs: Number(process.env.BASTA_LOT_DURATION_MS ?? 3_600_000),
   signedUploadExpiresInSeconds: Number(
     process.env.SIGNED_UPLOAD_EXPIRES_IN_SECONDS ?? 1800
   ),
+  livekitUrl: process.env.LIVEKIT_URL ?? "",
+  livekitApiKey: process.env.LIVEKIT_API_KEY ?? "",
+  livekitApiSecret: process.env.LIVEKIT_API_SECRET ?? "",
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  smsEnabled: process.env.SMS_ENABLED === "true",
+  twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+  twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER ?? "",
 };

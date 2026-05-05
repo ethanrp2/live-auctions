@@ -66,6 +66,7 @@ export async function LotDetail({ tenant, lotId, user }: LotDetailProps) {
             isAuthenticated={!!user}
             lotIndex={lotIndex}
             totalLots={totalLots}
+            tenantId={tenant.id}
           />
         </div>
       </div>

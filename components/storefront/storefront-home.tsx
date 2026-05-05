@@ -6,6 +6,8 @@ import { AuctionHero } from "./auction-hero";
 import { LotGrid } from "./lot-grid";
 import { SmsSubscribe } from "./sms-subscribe";
 
+const SMS_ENABLED = process.env.NEXT_PUBLIC_SMS_ENABLED === "true";
+
 interface StorefrontHomeProps {
   tenant: Tenant;
 }
@@ -39,7 +41,9 @@ export async function StorefrontHome({ tenant }: StorefrontHomeProps) {
       </main>
 
       {/* Mobile SMS overlay — fixed to bottom, hidden on desktop */}
-      <SmsSubscribe variant="mobile" primaryColor={primary} />
+      {SMS_ENABLED && (
+        <SmsSubscribe variant="mobile" primaryColor={primary} tenantId={tenant.id} />
+      )}
     </div>
   );
 }

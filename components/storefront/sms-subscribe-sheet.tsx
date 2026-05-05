@@ -4,9 +4,13 @@ import { useState } from "react";
 import { isLightColor } from "@/lib/color";
 import { ModalOverlay } from "./modal-overlay";
 
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+
 interface SmsSubscribeSheetProps {
   isOpen: boolean;
   onClose: () => void;
+  tenantId: string;
 }
 
 function CheckIcon({ style }: { style?: React.CSSProperties }) {
@@ -52,9 +56,11 @@ function UsFlagIcon() {
   );
 }
 
-export function SmsSubscribeSheet({ isOpen, onClose }: SmsSubscribeSheetProps) {
+export function SmsSubscribeSheet({ isOpen, onClose, tenantId }: SmsSubscribeSheetProps) {
   const [phone, setPhone] = useState("");
   const [subscribed, setSubscribed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   // Read primary color from CSS variable at render time
   const primaryColor =
@@ -101,35 +107,66 @@ export function SmsSubscribeSheet({ isOpen, onClose }: SmsSubscribeSheetProps) {
           </div>
         ) : (
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              if (phone.trim().length >= 7) setSubscribed(true);
+              const rawPhone = phone.trim();
+              if (!rawPhone) return;
+              const normalised = rawPhone.startsWith("+")
+                ? rawPhone
+                : `+1${rawPhone.replace(/\D/g, "")}`;
+              setError(null);
+              setLoading(true);
+              try {
+                const res = await fetch(`${BACKEND_URL}/api/buyer/sms-subscribe`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ phone: normalised, tenantId }),
+                });
+                if (!res.ok) {
+                  const data = await res.json().catch(() => ({}));
+                  setError((data as { error?: string }).error ?? "Failed to subscribe. Please try again.");
+                } else {
+                  setSubscribed(true);
+                }
+              } catch {
+                setError("Network error. Please try again.");
+              } finally {
+                setLoading(false);
+              }
             }}
-            className="flex items-center justify-between rounded bg-[#f3f3f3] py-[5px] pl-4 pr-[5px]"
+            className="flex flex-col gap-2"
           >
-            <div className="flex flex-1 items-center gap-3">
-              <UsFlagIcon />
-              <input
-                type="tel"
-                inputMode="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(000) 000-000"
-                className="w-full bg-transparent text-sm text-[#5e5e5e] outline-none placeholder:text-[#5e5e5e]"
-                style={{ fontFamily: "var(--storefront-font-display)" }}
-              />
+            <div className="flex items-center justify-between rounded bg-[#f3f3f3] py-[5px] pl-4 pr-[5px]">
+              <div className="flex flex-1 items-center gap-3">
+                <UsFlagIcon />
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(000) 000-0000"
+                  className="w-full bg-transparent text-sm text-[#5e5e5e] outline-none placeholder:text-[#5e5e5e]"
+                  style={{ fontFamily: "var(--storefront-font-display)" }}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex h-10 shrink-0 items-center rounded px-5 text-sm uppercase tracking-[-0.02em] transition hover:opacity-90 disabled:opacity-60"
+                style={{
+                  fontFamily: "var(--storefront-font-mono)",
+                  backgroundColor: primaryColor,
+                  color: buttonTextColor,
+                }}
+              >
+                {loading ? "..." : "SUBSCRIBE"}
+              </button>
             </div>
-            <button
-              type="submit"
-              className="flex h-10 shrink-0 items-center rounded px-5 text-sm uppercase tracking-[-0.02em] transition hover:opacity-90"
-              style={{
-                fontFamily: "var(--storefront-font-mono)",
-                backgroundColor: primaryColor,
-                color: buttonTextColor,
-              }}
-            >
-              SUBSCRIBE
-            </button>
+            {error && (
+              <p className="text-xs text-red-500" style={{ fontFamily: "var(--storefront-font-display)" }}>
+                {error}
+              </p>
+            )}
           </form>
         )}
       </div>

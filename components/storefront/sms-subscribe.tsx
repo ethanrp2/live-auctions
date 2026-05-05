@@ -3,9 +3,13 @@
 import { useState } from "react";
 import { isLightColor } from "@/lib/color";
 
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+
 interface SmsSubscribeProps {
   variant: "desktop" | "mobile";
   primaryColor: string;
+  tenantId: string;
 }
 
 function CloseIcon({ className }: { className?: string }) {
@@ -66,10 +70,12 @@ function UsFlagIcon({ className }: { className?: string }) {
   );
 }
 
-export function SmsSubscribe({ variant, primaryColor }: SmsSubscribeProps) {
+export function SmsSubscribe({ variant, primaryColor, tenantId }: SmsSubscribeProps) {
   const [phone, setPhone] = useState("");
   const [subscribed, setSubscribed] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   if (dismissed) return null;
 
@@ -149,36 +155,70 @@ export function SmsSubscribe({ variant, primaryColor }: SmsSubscribeProps) {
           </div>
         ) : (
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              if (phone.trim().length >= 7) setSubscribed(true);
+              const rawPhone = phone.trim();
+              if (!rawPhone) return;
+              // Normalise a 10-digit US number to E.164 if the user typed without +1
+              const normalised = rawPhone.startsWith("+")
+                ? rawPhone
+                : `+1${rawPhone.replace(/\D/g, "")}`;
+              setError(null);
+              setLoading(true);
+              try {
+                const res = await fetch(`${BACKEND_URL}/api/buyer/sms-subscribe`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ phone: normalised, tenantId }),
+                });
+                if (!res.ok) {
+                  const data = await res.json().catch(() => ({}));
+                  setError((data as { error?: string }).error ?? "Failed to subscribe. Please try again.");
+                } else {
+                  setSubscribed(true);
+                }
+              } catch {
+                setError("Network error. Please try again.");
+              } finally {
+                setLoading(false);
+              }
             }}
-            className="flex items-center justify-between rounded py-[5px] pl-4 pr-[5px]"
-            style={{ backgroundColor: inputBg }}
+            className="flex flex-col gap-2"
           >
-            <div className="flex flex-1 items-center gap-3">
-              <UsFlagIcon className="h-[14px] w-5 shrink-0 rounded-sm" />
-              <input
-                type="tel"
-                inputMode="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(000) 000-000"
-                className="w-full bg-transparent text-sm text-[#5e5e5e] outline-none placeholder:text-[#5e5e5e]"
-                style={{ fontFamily: "var(--storefront-font-display)" }}
-              />
-            </div>
-            <button
-              type="submit"
-              className="flex h-10 shrink-0 items-center rounded px-5 text-sm uppercase tracking-[-0.02em] transition hover:opacity-90"
-              style={{
-                fontFamily: "var(--storefront-font-mono)",
-                backgroundColor: primaryColor,
-                color: buttonTextColor,
-              }}
+            <div
+              className="flex items-center justify-between rounded py-[5px] pl-4 pr-[5px]"
+              style={{ backgroundColor: inputBg }}
             >
-              SUBSCRIBE
-            </button>
+              <div className="flex flex-1 items-center gap-3">
+                <UsFlagIcon className="h-[14px] w-5 shrink-0 rounded-sm" />
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(000) 000-0000"
+                  className="w-full bg-transparent text-sm text-[#5e5e5e] outline-none placeholder:text-[#5e5e5e]"
+                  style={{ fontFamily: "var(--storefront-font-display)" }}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex h-10 shrink-0 items-center rounded px-5 text-sm uppercase tracking-[-0.02em] transition hover:opacity-90 disabled:opacity-60"
+                style={{
+                  fontFamily: "var(--storefront-font-mono)",
+                  backgroundColor: primaryColor,
+                  color: buttonTextColor,
+                }}
+              >
+                {loading ? "..." : "SUBSCRIBE"}
+              </button>
+            </div>
+            {error && (
+              <p className="text-xs text-red-500" style={{ fontFamily: "var(--storefront-font-display)" }}>
+                {error}
+              </p>
+            )}
           </form>
         )}
       </div>

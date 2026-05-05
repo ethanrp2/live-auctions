@@ -5,7 +5,10 @@ import { useState, useRef, useCallback } from "react";
 interface ImageCarouselProps {
   images: string[];
   alt: string;
+  heightClass?: string;
 }
+
+const DEFAULT_HEIGHT_CLASS = "h-[300px] lg:h-[calc(100vh-110px)]";
 
 function ArrowLeft() {
   return (
@@ -23,7 +26,7 @@ function ArrowRight() {
   );
 }
 
-export function ImageCarousel({ images, alt }: ImageCarouselProps) {
+export function ImageCarousel({ images, alt, heightClass = DEFAULT_HEIGHT_CLASS }: ImageCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const touchStartX = useRef(0);
   const touchDeltaX = useRef(0);
@@ -58,7 +61,7 @@ export function ImageCarousel({ images, alt }: ImageCarouselProps) {
 
   if (images.length === 0) {
     return (
-      <div className="flex w-full items-center justify-center bg-[#f8f8f8] h-[300px] lg:h-[calc(100vh-110px)]">
+      <div className={`flex w-full items-center justify-center bg-[#f8f8f8] ${heightClass}`}>
         <span
           className="text-[10px] uppercase tracking-widest text-[#c9c9c9]"
           style={{ fontFamily: "var(--storefront-font-mono)" }}
@@ -73,7 +76,7 @@ export function ImageCarousel({ images, alt }: ImageCarouselProps) {
     <div className="relative w-full bg-[#f8f8f8]">
       {/* Image viewport */}
       <div
-        className="relative h-[300px] lg:h-[calc(100vh-110px)] overflow-hidden"
+        className={`relative ${heightClass} overflow-hidden`}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
