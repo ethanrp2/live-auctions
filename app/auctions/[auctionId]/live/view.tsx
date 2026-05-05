@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/hooks/use-user";
 import { useSaleActivity } from "@/lib/hooks/use-sale-activity";
 import { useBidFeed } from "@/lib/hooks/use-bid-feed";
@@ -30,6 +30,9 @@ import { MaxBidSheet } from "@/components/live/max-bid-sheet";
 import { LotInfo } from "@/components/storefront/lot-info";
 import type { StorefrontLotDetail } from "@/lib/storefront-data";
 
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+
 export interface AuctionData {
   id: string;
   title: string;
@@ -58,6 +61,14 @@ export interface LotData {
 interface Props {
   auction: AuctionData;
   lots: LotData[];
+}
+
+interface BuyerQuestion {
+  id: string;
+  questionText: string;
+  answerText: string | null;
+  createdAt: string;
+  dismissed: boolean;
 }
 
 function coerceIncrementTable(raw: unknown): BidIncrementRule[] | null {
@@ -223,7 +234,38 @@ export function LiveAuctionView({ auction, lots }: Props) {
   const [lastError, setLastError] = useState<string | null>(null);
   const [customSheetOpen, setCustomSheetOpen] = useState(false);
   const [maxSheetOpen, setMaxSheetOpen] = useState(false);
+  const [questionSheetOpen, setQuestionSheetOpen] = useState(false);
+  const [myQuestions, setMyQuestions] = useState<BuyerQuestion[]>([]);
   const [hasBidOnThisLot, setHasBidOnThisLot] = useState(false);
+
+  const loadMyQuestions = useCallback(async () => {
+    if (!session?.access_token) {
+      setMyQuestions([]);
+      return;
+    }
+
+    const res = await fetch(
+      `${BACKEND_URL}/api/auctions/${auction.id}/questions/mine`,
+      {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      }
+    );
+    if (!res.ok) return;
+    const data = (await res.json()) as { questions?: BuyerQuestion[] };
+    setMyQuestions(data.questions ?? []);
+  }, [auction.id, session?.access_token]);
+
+  useEffect(() => {
+    void loadMyQuestions();
+    if (!session?.access_token) return;
+
+    const id = window.setInterval(() => {
+      void loadMyQuestions();
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [loadMyQuestions, session?.access_token]);
 
   useEffect(() => {
     setHasBidOnThisLot(false);
@@ -327,6 +369,26 @@ export function LiveAuctionView({ auction, lots }: Props) {
     }
   }
 
+  async function handleAskQuestion(questionText: string): Promise<void> {
+    if (!session?.access_token) {
+      throw new Error("Please sign in to ask a question.");
+    }
+
+    const res = await fetch(`${BACKEND_URL}/api/auctions/${auction.id}/questions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ questionText }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      throw new Error(data.error ?? `Question failed (${res.status})`);
+    }
+    await loadMyQuestions();
+  }
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-white text-black">
       <div className="relative">
@@ -350,7 +412,11 @@ export function LiveAuctionView({ auction, lots }: Props) {
             nextLotId={nextLotId}
           />
 
-          <LiveLotHero images={currentLot.images} title={currentLot.title} />
+          <LiveLotHero
+            images={currentLot.images}
+            title={currentLot.title}
+            onAskQuestion={() => setQuestionSheetOpen(true)}
+          />
 
           {bannerKind && (
             <LiveStatusBanner
@@ -379,6 +445,8 @@ export function LiveAuctionView({ auction, lots }: Props) {
             totalCount={bidFeedEntries.length}
             onViewAll={() => {}}
           />
+
+          <BuyerQuestionsPanel questions={myQuestions} />
 
           <LiveBidFooter
             currentBidCents={currentBidCents}
@@ -412,12 +480,220 @@ export function LiveAuctionView({ auction, lots }: Props) {
             isAuthenticated={!!session}
             onAuthRequired={() => {}}
           />
+
+          <LiveQuestionSheet
+            isOpen={questionSheetOpen}
+            onClose={() => setQuestionSheetOpen(false)}
+            isAuthenticated={!!session}
+            questions={myQuestions}
+            onSubmit={handleAskQuestion}
+          />
         </>
       ) : (
         <div className="flex flex-1 items-center justify-center p-6 text-sm text-[#5e5e5e]">
           No lots in this auction.
         </div>
       )}
+    </div>
+  );
+}
+
+function BuyerQuestionsPanel({ questions }: { questions: BuyerQuestion[] }) {
+  if (questions.length === 0) return null;
+
+  const visible = questions.slice(0, 3);
+  return (
+    <section
+      className="border-b border-[#f3f3f3] px-5 py-4"
+      style={{ fontFamily: "var(--storefront-font-mono)" }}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-xs uppercase tracking-[-0.02em] text-black">
+          Your Questions
+        </span>
+        <span className="text-[11px] uppercase tracking-[-0.02em] text-[#9c9c9c]">
+          {questions.length}
+        </span>
+      </div>
+      <div className="flex flex-col gap-3">
+        {visible.map((question) => (
+          <div key={question.id} className="border border-[#f3f3f3] p-3">
+            <p
+              className="text-[12px] leading-5 text-black"
+              style={{ fontFamily: "var(--storefront-font-display)" }}
+            >
+              {question.questionText}
+            </p>
+            {question.answerText ? (
+              <div className="mt-3 border-l-2 border-black pl-3">
+                <p className="text-[10px] uppercase tracking-[-0.02em] text-[#5e5e5e]">
+                  Seller Answer
+                </p>
+                <p
+                  className="mt-1 text-[12px] leading-5 text-black"
+                  style={{ fontFamily: "var(--storefront-font-display)" }}
+                >
+                  {question.answerText}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-2 text-[10px] uppercase tracking-[-0.02em] text-[#9c9c9c]">
+                Awaiting seller answer
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LiveQuestionSheet({
+  isOpen,
+  onClose,
+  isAuthenticated,
+  questions,
+  onSubmit,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  isAuthenticated: boolean;
+  questions: BuyerQuestion[];
+  onSubmit: (questionText: string) => Promise<void>;
+}) {
+  const [input, setInput] = useState("");
+  const [status, setStatus] = useState<"idle" | "submitting" | "sent">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  function handleClose() {
+    setInput("");
+    setStatus("idle");
+    setError(null);
+    onClose();
+  }
+
+  const trimmed = input.trim();
+  const canSubmit = isAuthenticated && trimmed.length >= 3 && status !== "submitting";
+
+  async function handleSubmit() {
+    if (!isAuthenticated) {
+      setError("Please sign in to ask a question.");
+      return;
+    }
+    if (trimmed.length < 3) {
+      setError("Enter a question for the seller.");
+      return;
+    }
+
+    setStatus("submitting");
+    setError(null);
+    try {
+      await onSubmit(trimmed);
+      setInput("");
+      setStatus("sent");
+    } catch (err) {
+      setStatus("idle");
+      setError(err instanceof Error ? err.message : "Question failed.");
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+      onClick={handleClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="flex max-h-[88vh] w-full max-w-xl flex-col gap-4 overflow-y-auto rounded-t-lg bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        onClick={(event) => event.stopPropagation()}
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm uppercase tracking-[-0.02em] text-black">
+            Ask The Seller
+          </h2>
+          <button
+            type="button"
+            onClick={handleClose}
+            className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e] transition-colors hover:text-black"
+          >
+            Close
+          </button>
+        </div>
+
+        <textarea
+          value={input}
+          onChange={(event) => {
+            setInput(event.target.value);
+            setStatus("idle");
+            setError(null);
+          }}
+          disabled={status === "submitting"}
+          maxLength={1000}
+          rows={4}
+          placeholder="Ask about condition, provenance, shipping, or pickup."
+          className="min-h-[112px] w-full resize-none border border-[#bababa] bg-white p-3 text-sm tracking-[-0.02em] text-black outline-none placeholder:text-[#9c9c9c] focus:border-black"
+          style={{ fontFamily: "var(--storefront-font-display)" }}
+        />
+
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className="flex h-[50px] items-center justify-center rounded-[2px] bg-black transition-opacity hover:opacity-90 disabled:opacity-60"
+        >
+          <span className="text-sm uppercase tracking-[-0.02em] text-white">
+            {status === "submitting" ? "Sending" : "Send Question"}
+          </span>
+        </button>
+
+        {status === "sent" && (
+          <p className="text-center text-xs text-[#00a65a]" role="status">
+            Question sent to the seller.
+          </p>
+        )}
+        {error && (
+          <p className="text-center text-xs text-[#c11]" role="alert">
+            {error}
+          </p>
+        )}
+
+        {questions.length > 0 && (
+          <div className="border-t border-[#f3f3f3] pt-4">
+            <p className="mb-3 text-xs uppercase tracking-[-0.02em] text-black">
+              Recent Questions
+            </p>
+            <div className="flex flex-col gap-3">
+              {questions.slice(0, 5).map((question) => (
+                <div key={question.id} className="border border-[#f3f3f3] p-3">
+                  <p
+                    className="text-[12px] leading-5 text-black"
+                    style={{ fontFamily: "var(--storefront-font-display)" }}
+                  >
+                    {question.questionText}
+                  </p>
+                  {question.answerText ? (
+                    <p
+                      className="mt-2 text-[12px] leading-5 text-black"
+                      style={{ fontFamily: "var(--storefront-font-display)" }}
+                    >
+                      <span className="font-medium">Seller:</span>{" "}
+                      {question.answerText}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-[10px] uppercase tracking-[-0.02em] text-[#9c9c9c]">
+                      Awaiting seller answer
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -145,26 +145,27 @@ function useCountdownDisplay(countdownMs: number | null): string {
     countdownMs === null ? "--:--" : formatCountdown(countdownMs)
   );
 
-  const deadlineRef = useRef<number | null>(
-    countdownMs !== null ? Date.now() + countdownMs : null
-  );
+  const deadlineRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (countdownMs === null) {
-      deadlineRef.current = null;
-      setDisplay("--:--");
-      return;
-    }
-    deadlineRef.current = Date.now() + countdownMs;
+    deadlineRef.current = countdownMs === null ? null : Date.now() + countdownMs;
+
     function tick() {
       const deadline = deadlineRef.current;
-      if (deadline === null) return;
+      if (deadline === null) {
+        setDisplay("--:--");
+        return;
+      }
       const remaining = Math.max(0, deadline - Date.now());
       setDisplay(formatCountdown(remaining));
     }
-    tick();
+
+    const initialId = window.setTimeout(tick, 0);
     const id = setInterval(tick, 250);
-    return () => clearInterval(id);
+    return () => {
+      window.clearTimeout(initialId);
+      clearInterval(id);
+    };
   }, [countdownMs]);
 
   return display;
@@ -236,36 +237,6 @@ function PulseDot() {
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#ff0004] opacity-75" />
       <span className="relative inline-flex h-2 w-2 rounded-full bg-[#ff0004]" />
     </span>
-  );
-}
-
-function AudioIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      className="h-4 w-4 text-white/60"
-      aria-hidden="true"
-    >
-      <path
-        d="M3 7.5h2l4-4v13l-4-4H3v-5z"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M13.5 7a4 4 0 0 1 0 6"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-      />
-      <path
-        d="M16 4.5a7 7 0 0 1 0 11"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }
 
@@ -382,10 +353,22 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   }, [liveLots, currentLot]);
 
   // Image carousel state
-  const [imageIndex, setImageIndex] = useState(0);
-  useEffect(() => {
-    setImageIndex(0);
-  }, [currentLotId]);
+  const [imageSelection, setImageSelection] = useState<{
+    lotId: string | null;
+    index: number;
+  }>({ lotId: null, index: 0 });
+  const imageIndex =
+    imageSelection.lotId === currentLotId ? imageSelection.index : 0;
+
+  function setCurrentImageIndex(next: number | ((current: number) => number)) {
+    setImageSelection((prev) => {
+      const currentIndex = prev.lotId === currentLotId ? prev.index : 0;
+      return {
+        lotId: currentLotId,
+        index: typeof next === "function" ? next(currentIndex) : next,
+      };
+    });
+  }
 
   const currentImages = currentLot?.images ?? [];
   const currentImage = currentImages[imageIndex] ?? null;
@@ -476,11 +459,23 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   }
 
   async function handleDismissQuestion(questionId: string) {
-    const supabase = createClient();
-    await supabase
-      .from("auction_questions")
-      .update({ dismissed: true })
-      .eq("id", questionId);
+    const result = await apiPost(
+      `/api/auctions/${auction.id}/questions/${questionId}/dismiss`,
+      {}
+    );
+    if (!result.ok) {
+      setActionError(result.error ?? "Failed to dismiss question");
+    }
+  }
+
+  async function handleAnswerQuestion(questionId: string, answerText: string) {
+    const result = await apiPost(
+      `/api/auctions/${auction.id}/questions/${questionId}/answer`,
+      { answerText }
+    );
+    if (!result.ok) {
+      setActionError(result.error ?? "Failed to answer question");
+    }
   }
 
   // Visible questions (not dismissed) — the hook already filters, but keep local too
@@ -704,7 +699,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                         <button
                           key={i}
                           type="button"
-                          onClick={() => setImageIndex(i)}
+                          onClick={() => setCurrentImageIndex(i)}
                           className={[
                             "h-1.5 w-1.5 rounded-full transition-colors",
                             i === imageIndex
@@ -722,7 +717,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                       <button
                         type="button"
                         onClick={() =>
-                          setImageIndex((i) =>
+                          setCurrentImageIndex((i) =>
                             i === 0 ? currentImages.length - 1 : i - 1
                           )
                         }
@@ -742,7 +737,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                       <button
                         type="button"
                         onClick={() =>
-                          setImageIndex((i) =>
+                          setCurrentImageIndex((i) =>
                             i === currentImages.length - 1 ? 0 : i + 1
                           )
                         }
@@ -1026,6 +1021,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                       key={q.id}
                       question={q}
                       onDismiss={handleDismissQuestion}
+                      onAnswer={handleAnswerQuestion}
                     />
                   ))}
                 </div>
@@ -1098,11 +1094,16 @@ function LotSection({
 function QuestionItem({
   question,
   onDismiss,
+  onAnswer,
 }: {
   question: QuestionRow;
   onDismiss: (id: string) => void;
+  onAnswer: (id: string, answerText: string) => void;
 }) {
   const color = avatarColor(question.displayName);
+  const [answerText, setAnswerText] = useState("");
+  const canAnswer = answerText.trim().length >= 2;
+
   return (
     <div className="flex items-start gap-2 rounded-[6px] bg-[#fafafa] p-2">
       {/* Avatar */}
@@ -1134,6 +1135,44 @@ function QuestionItem({
         >
           {question.questionText}
         </p>
+        {question.answerText ? (
+          <div className="mt-2 border-l-2 border-black/20 pl-2">
+            <span
+              className="block text-[9px] uppercase tracking-widest text-black/35"
+              style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+            >
+              Answered
+            </span>
+            <p
+              className="mt-1 text-[11px] leading-snug text-black/70"
+              style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+            >
+              {question.answerText}
+            </p>
+          </div>
+        ) : (
+          <div className="mt-2 flex gap-1">
+            <input
+              value={answerText}
+              onChange={(event) => setAnswerText(event.target.value)}
+              placeholder="Answer buyer"
+              className="h-8 min-w-0 flex-1 rounded-[4px] border border-black/10 bg-white px-2 text-[11px] text-black outline-none focus:border-black"
+              style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                onAnswer(question.id, answerText.trim());
+                setAnswerText("");
+              }}
+              disabled={!canAnswer}
+              className="h-8 shrink-0 rounded-[4px] bg-black px-2 text-[10px] uppercase tracking-widest text-white disabled:opacity-30"
+              style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+            >
+              Answer
+            </button>
+          </div>
+        )}
       </div>
 
       <button

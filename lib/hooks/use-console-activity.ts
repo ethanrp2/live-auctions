@@ -30,6 +30,7 @@ import type { BidFeedRow } from "@/lib/hooks/use-bid-feed";
 
 const RECENT_BID_LIMIT = 100;
 const RECENT_QUESTION_LIMIT = 50;
+const ANSWER_SEPARATOR = "\n\n---SELLER_ANSWER---\n";
 
 export type { SaleUpdatePayload };
 
@@ -38,6 +39,7 @@ export type QuestionRow = {
   userId: string | null;
   displayName: string;
   questionText: string;
+  answerText: string | null;
   createdAt: string;
   dismissed: boolean;
 };
@@ -60,7 +62,6 @@ type ProfileRow = {
 type QuestionsTableRow = {
   id: string;
   user_id: string | null;
-  user_display_name: string | null;
   question_text: string;
   created_at: string;
   dismissed: boolean;
@@ -93,6 +94,44 @@ function resolveDisplayName(
   return name && name.trim().length > 0 ? name : "Anonymous";
 }
 
+function parseQuestionText(raw: string): { questionText: string; answerText: string | null } {
+  const [questionText, answerText] = raw.split(ANSWER_SEPARATOR);
+  return {
+    questionText: questionText.trim(),
+    answerText: answerText?.trim() || null,
+  };
+}
+
+async function hydrateQuestionRow(
+  row: QuestionsTableRow,
+  supabase: ReturnType<typeof createClient>,
+  profiles: Map<string, string | null>
+): Promise<QuestionRow> {
+  if (row.user_id && !profiles.has(row.user_id)) {
+    profiles.set(row.user_id, null);
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id, display_name")
+      .eq("id", row.user_id)
+      .maybeSingle<ProfileRow>();
+
+    if (profile) {
+      profiles.set(profile.id, profile.display_name);
+    }
+  }
+
+  const parsed = parseQuestionText(row.question_text);
+  return {
+    id: row.id,
+    userId: row.user_id,
+    displayName: resolveDisplayName(row.user_id, profiles),
+    questionText: parsed.questionText,
+    answerText: parsed.answerText,
+    createdAt: row.created_at,
+    dismissed: row.dismissed,
+  };
+}
+
 export function useConsoleActivity(
   saleId: string | null,
   auctionId: string | null,
@@ -108,13 +147,17 @@ export function useConsoleActivity(
   const activeSaleIdRef = useRef<string | null>(saleId);
 
   useEffect(() => {
+    let disposed = false;
+
     activeSaleIdRef.current = saleId;
-    setSaleActivity(new Map());
-    setBastaConnected(false);
+    queueMicrotask(() => {
+      if (disposed) return;
+      setSaleActivity(new Map());
+      setBastaConnected(false);
+    });
 
     if (!saleId) return;
 
-    let disposed = false;
     let unsubscribe: (() => void) | null = null;
 
     try {
@@ -144,7 +187,9 @@ export function useConsoleActivity(
         }
       );
     } catch {
-      setBastaConnected(false);
+      queueMicrotask(() => {
+        if (!disposed) setBastaConnected(false);
+      });
     }
 
     return () => {
@@ -177,14 +222,20 @@ export function useConsoleActivity(
     liveForCurrent?.currentBid ?? latestBidForCurrentLot?.amountCents ?? null;
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!auctionId) {
-      setBids([]);
-      setSupabaseConnected(false);
       profilesRef.current = new Map();
-      return;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setBids([]);
+        setSupabaseConnected(false);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
 
-    let cancelled = false;
     const supabase = createClient();
     const profiles = new Map<string, string | null>();
     profilesRef.current = profiles;
@@ -312,19 +363,25 @@ export function useConsoleActivity(
   const [questions, setQuestions] = useState<QuestionRow[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!auctionId) {
-      setQuestions([]);
-      return;
+      queueMicrotask(() => {
+        if (!cancelled) setQuestions([]);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
 
-    let cancelled = false;
     const supabase = createClient();
     let questionsChannel: RealtimeChannel | null = null;
+    const questionProfiles = new Map<string, string | null>();
 
     async function bootstrapQuestions() {
       const { data: qData } = await supabase
         .from("auction_questions")
-        .select("id, user_id, user_display_name, question_text, created_at, dismissed")
+        .select("id, user_id, question_text, created_at, dismissed")
         .eq("auction_id", auctionId)
         .eq("dismissed", false)
         .order("created_at", { ascending: false })
@@ -332,16 +389,14 @@ export function useConsoleActivity(
 
       if (cancelled) return;
 
-      setQuestions(
-        ((qData ?? []) as QuestionsTableRow[]).map((row) => ({
-          id: row.id,
-          userId: row.user_id,
-          displayName: row.user_display_name ?? "Anonymous",
-          questionText: row.question_text,
-          createdAt: row.created_at,
-          dismissed: row.dismissed,
-        }))
+      const hydratedQuestions = await Promise.all(
+        ((qData ?? []) as QuestionsTableRow[]).map((row) =>
+          hydrateQuestionRow(row, supabase, questionProfiles)
+        )
       );
+      if (cancelled) return;
+
+      setQuestions(hydratedQuestions);
 
       questionsChannel = supabase
         .channel(`console:questions:${auctionId}`)
@@ -357,17 +412,12 @@ export function useConsoleActivity(
             if (cancelled) return;
             const row = payload.new as QuestionsTableRow;
             if (row.dismissed) return;
-            const next: QuestionRow = {
-              id: row.id,
-              userId: row.user_id,
-              displayName: row.user_display_name ?? "Anonymous",
-              questionText: row.question_text,
-              createdAt: row.created_at,
-              dismissed: row.dismissed,
-            };
-            setQuestions((prev) => {
-              if (prev.some((q) => q.id === next.id)) return prev;
-              return [next, ...prev].slice(0, RECENT_QUESTION_LIMIT);
+            void hydrateQuestionRow(row, supabase, questionProfiles).then((next) => {
+              if (cancelled) return;
+              setQuestions((prev) => {
+                if (prev.some((q) => q.id === next.id)) return prev;
+                return [next, ...prev].slice(0, RECENT_QUESTION_LIMIT);
+              });
             });
           }
         )
@@ -385,7 +435,14 @@ export function useConsoleActivity(
             if (row.dismissed) {
               // Remove dismissed questions from the feed.
               setQuestions((prev) => prev.filter((q) => q.id !== row.id));
+              return;
             }
+            void hydrateQuestionRow(row, supabase, questionProfiles).then((next) => {
+              if (cancelled) return;
+              setQuestions((prev) =>
+                prev.map((q) => (q.id === next.id ? next : q))
+              );
+            });
           }
         )
         .subscribe();
