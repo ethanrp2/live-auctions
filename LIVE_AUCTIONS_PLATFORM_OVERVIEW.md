@@ -77,7 +77,7 @@ Basta is the headless bidding engine. It owns:
 
 ### Auth Pattern
 
-1. User authenticates with our platform auth (e.g. Clerk or Auth0)
+1. User authenticates with Supabase Auth (email/password or magic link)
 2. Our backend calls Basta's `createBidderToken` mutation with the platform `userId` and a TTL
 3. Client receives the Basta JWT and uses it in the `Authorization` header for all Basta Client API calls and WebSocket connections
 4. Basta bid events return the same `userId`, which our platform maps back to display names
@@ -86,17 +86,17 @@ Basta is the headless bidding engine. It owns:
 
 ## Technical Architecture
 
-- **Frontend**: Next.js (responsive web + mobile views)
-- **Backend**: Node.js / Fastify
-- **Database**: PostgreSQL with Row-Level Security, every table scoped by `tenant_id`
+- **Frontend**: Next.js 16 (App Router, TypeScript, responsive web + mobile views)
+- **Backend**: Fastify (TypeScript, `backend/` monorepo package)
+- **Database**: Supabase (PostgreSQL + RLS + Auth + Realtime + Storage), every table scoped by `tenant_id`
 - **Multi-tenancy**: Single shared deployment. New house = new database rows + subdomain config. No per-tenant infrastructure.
 - **Domain routing**: Subdomains per house (e.g. `unsoundrags.liveauctions.com`). Host header → tenant lookup table → scoped data.
-- **Real-time**: Basta WebSocket subscriptions for bid state. Redis pub/sub for platform-level events (buyer questions, lot transitions).
+- **Real-time**: Basta WebSocket subscriptions for bid state. Supabase Realtime for platform-level events (buyer questions, lot transitions, bid feed).
 - **Audio streaming**: LiveKit — audio-only (not video), seller broadcasts to all connected buyers during a live auction.
-- **Payments**: Stripe Connect — each house has its own connected account.
-- **Shipping**: Shippo
+- **Payments**: Stripe Connect — per-house connected accounts.
+- **Shipping**: Record-keeping only for MVP — no Shippo integration. Sellers view winner info in the console.
 - **SMS**: Twilio — auction alerts, bid notifications
-- **Auth**: Platform auth provider (Clerk or Auth0) → Basta bidder token bridge
+- **Auth**: Supabase Auth → Basta bidder token bridge
 
 ---
 

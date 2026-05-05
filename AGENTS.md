@@ -8,13 +8,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 Two primary documents — read both before writing any code:
 
-1. **`LIVE_AUCTIONS_PLAN.md`** — product concept, stack decisions, architecture ADRs, Basta integration surface, DB schema, milestone definitions. The stable reference.
+1. **`LIVE_AUCTIONS_PLATFORM_OVERVIEW.md`** — product concept, user flows, Basta integration boundary, key screens. The stable product reference.
 
-2. **`WORKING_NOTES.md`** — current milestone, task checklist, pending manual actions, open questions, session log. The living progress tracker. Update this as you complete tasks.
-
-Supporting deep-dives:
-- `docs/memory/INDEX.md` — index of architecture, ADR, risk, and session files
-- `docs/memory/architecture/` — per-topic architecture notes (auth, money units, RLS, Basta, realtime, tenant model)
+2. **`LIVE_AUCTIONS_IMPLEMENTATION_PLAN.md`** — stack, architecture decisions, DB schema, implementation steps with progress checkboxes, pending actions, open questions. The living implementation tracker. Update this as you complete tasks.
 
 ## Key constraints
 - Money = integer cents everywhere (DB, UI, Basta API). See `lib/format.ts`.
