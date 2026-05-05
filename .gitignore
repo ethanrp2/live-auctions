@@ -43,6 +43,7 @@ next-env.d.ts
 
 # backend
 /backend/dist
+/backend/node_modules
 
 # implementation docs
 # LIVE_AUCTIONS_PLATFORM_OVERVIEW.md
