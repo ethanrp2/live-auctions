@@ -60,6 +60,10 @@ async function verifyLotOwnership(
   return data;
 }
 
+function isEndedAuction(status: string | null): boolean {
+  return status === "ended" || status === "closed";
+}
+
 export async function consoleSellerRoutes(fastify: FastifyInstance) {
   // PATCH /api/auctions/:auctionId/current-lot
   fastify.patch<{ Params: { auctionId: string }; Body: { lotId: string } }>(
@@ -84,6 +88,9 @@ export async function consoleSellerRoutes(fastify: FastifyInstance) {
       if (!auction) {
         return reply.status(404).send({ error: "Auction not found" });
       }
+      if (isEndedAuction(auction.status)) {
+        return reply.status(409).send({ error: "Auction has ended" });
+      }
 
       const { lotId } = request.body;
 
@@ -101,6 +108,7 @@ export async function consoleSellerRoutes(fastify: FastifyInstance) {
 
       const auctionUpdates: Record<string, unknown> = {
         current_lot_id: lotId,
+        status: "live",
       };
       if (!auctionMeta?.went_live_at) {
         auctionUpdates.went_live_at = new Date().toISOString();
@@ -115,6 +123,18 @@ export async function consoleSellerRoutes(fastify: FastifyInstance) {
       if (auctionError) {
         request.log.error({ err: auctionError }, "Failed to update current lot");
         return reply.status(500).send({ error: "Failed to update current lot" });
+      }
+
+      const { error: resetLotsError } = await supabaseAdmin
+        .from("lots")
+        .update({ live_status: "upcoming" })
+        .eq("auction_id", auction.id)
+        .eq("tenant_id", seller.tenantId)
+        .in("live_status", ["upcoming", "live", "closing"]);
+
+      if (resetLotsError) {
+        request.log.error({ err: resetLotsError }, "Failed to reset lot statuses");
+        return reply.status(500).send({ error: "Failed to reset lot statuses" });
       }
 
       const { error: lotError } = await supabaseAdmin
@@ -157,6 +177,9 @@ export async function consoleSellerRoutes(fastify: FastifyInstance) {
 
       if (!auction) {
         return reply.status(404).send({ error: "Auction not found" });
+      }
+      if (isEndedAuction(auction.status)) {
+        return reply.status(409).send({ error: "Auction has ended" });
       }
 
       const { lotId, winnerUserId, salePriceCents } = request.body;
@@ -233,6 +256,9 @@ export async function consoleSellerRoutes(fastify: FastifyInstance) {
 
       if (!auction) {
         return reply.status(404).send({ error: "Auction not found" });
+      }
+      if (isEndedAuction(auction.status)) {
+        return reply.status(409).send({ error: "Auction has ended" });
       }
 
       const { lotId } = request.body;

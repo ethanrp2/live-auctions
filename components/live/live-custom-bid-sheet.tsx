@@ -35,8 +35,13 @@ export function LiveCustomBidSheet({
     if (!isOpen) {
       setInput("");
       setState({ status: "idle" });
+      return;
     }
-  }, [isOpen]);
+
+    const defaultCents = minNextBidCents ?? startingBidCents;
+    setInput(defaultCents != null ? (defaultCents / 100).toFixed(2) : "");
+    setState({ status: "idle" });
+  }, [isOpen, minNextBidCents, startingBidCents]);
 
   if (!isOpen) return null;
 

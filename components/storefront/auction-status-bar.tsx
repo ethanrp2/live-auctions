@@ -1,9 +1,12 @@
 "use client";
 
-import { formatLiveDate } from "@/lib/format";
+import { useEffect, useMemo, useState } from "react";
+import type { StorefrontAuction } from "@/lib/storefront-data";
+import { getStorefrontAuctionPhase } from "@/lib/storefront-state";
+import { formatAuctionScheduleDate, formatElapsedSince, formatLiveDate } from "@/lib/format";
 
 interface AuctionStatusBarProps {
-  scheduledDate: string;
+  auction: Pick<StorefrontAuction, "status" | "scheduled_date" | "went_live_at" | "ended_at">;
   onGetAlerted?: () => void;
 }
 
@@ -24,19 +27,46 @@ function CalendarIcon() {
   );
 }
 
-export function AuctionStatusBar({ scheduledDate, onGetAlerted }: AuctionStatusBarProps) {
+export function AuctionStatusBar({ auction, onGetAlerted }: AuctionStatusBarProps) {
+  const [, setTick] = useState(0);
+  const phase = getStorefrontAuctionPhase(auction);
+
+  useEffect(() => {
+    if (phase !== "live") return;
+    const intervalId = window.setInterval(() => setTick((value) => value + 1), 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [phase]);
+
+  const label = useMemo(() => {
+    if (phase === "ended") {
+      return `ENDED ${formatAuctionScheduleDate(auction.ended_at ?? auction.scheduled_date)}`;
+    }
+    if (phase === "live") {
+      return `LIVE NOW · ${formatElapsedSince(auction.went_live_at ?? auction.scheduled_date)} ELAPSED`;
+    }
+    return formatLiveDate(auction.scheduled_date);
+  }, [auction.ended_at, auction.scheduled_date, auction.went_live_at, phase]);
+
+  const showAlertButton = phase === "upcoming" && onGetAlerted;
+  const barClass =
+    phase === "ended"
+      ? "bg-[#f5f5f5] text-black"
+      : phase === "live"
+        ? "bg-black text-white"
+        : "bg-[#fff7e1] text-[#ff3700]";
+
   return (
-    <div className="flex h-10 items-center justify-between bg-[#fff7e1] px-4">
-      <div className="flex items-center gap-3 text-[#ff3700]">
+    <div className={`flex h-10 items-center justify-between px-4 ${barClass}`}>
+      <div className="flex items-center gap-3">
         <CalendarIcon />
         <span
           className="text-xs uppercase tracking-[-0.02em]"
           style={{ fontFamily: "var(--storefront-font-mono)" }}
         >
-          {formatLiveDate(scheduledDate)}
+          {label}
         </span>
       </div>
-      {onGetAlerted && (
+      {showAlertButton && (
         <button
           type="button"
           onClick={onGetAlerted}

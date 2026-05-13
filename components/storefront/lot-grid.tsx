@@ -1,11 +1,12 @@
-import type { StorefrontLot } from "@/lib/storefront-data";
+import type { StorefrontAuction, StorefrontLot } from "@/lib/storefront-data";
 import { LotCard } from "./lot-card";
 
 interface LotGridProps {
+  auction: StorefrontAuction;
   lots: StorefrontLot[];
 }
 
-export function LotGrid({ lots }: LotGridProps) {
+export function LotGrid({ auction, lots }: LotGridProps) {
   if (lots.length === 0) {
     return (
       <div
@@ -18,9 +19,9 @@ export function LotGrid({ lots }: LotGridProps) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-5 p-5 pb-40 sm:grid-cols-2 lg:grid-cols-3 lg:pb-5">
+      <div className="grid grid-cols-1 gap-5 p-5 pb-40 sm:grid-cols-2 lg:grid-cols-3 lg:pb-5">
       {lots.map((lot, index) => (
-        <LotCard key={lot.id} lot={lot} index={index} total={lots.length} />
+        <LotCard key={lot.id} auction={auction} lot={lot} index={index} total={lots.length} />
       ))}
     </div>
   );

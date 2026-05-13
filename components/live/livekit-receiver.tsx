@@ -202,12 +202,15 @@ export function LiveKitReceiver({ auctionId }: Props) {
       <button
         type="button"
         onClick={handleUnmute}
-        className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] uppercase tracking-widest text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+        className="flex items-center gap-1.5 rounded-full bg-white/10 px-2 py-1 text-[11px] uppercase tracking-widest text-white backdrop-blur-sm transition-colors hover:bg-white/20 sm:px-3"
         aria-label="Tap to unmute auction audio"
       >
         <SpeakerMutedIcon className="h-3.5 w-3.5 text-white/60" />
-        <span style={{ fontFamily: "var(--storefront-font-mono)" }}>
-          TAP TO UNMUTE
+        <span
+          className="hidden sm:inline"
+          style={{ fontFamily: "var(--storefront-font-mono)" }}
+        >
+          Tap to unmute
         </span>
       </button>
     );

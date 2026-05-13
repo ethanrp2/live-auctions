@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { fetchDisplayNames } from "@/lib/profile-display-names";
 import { getTenantBySlug } from "@/lib/tenant";
 import { LiveAuctionView } from "./view";
 
@@ -23,7 +24,7 @@ export default async function LiveAuctionPage({
   const { data: auction } = await supabase
     .from("auctions")
     .select(
-      "id, tenant_id, title, basta_sale_id, status, current_lot_id, bid_increment_table, closing_time_countdown_ms"
+      "id, tenant_id, title, basta_sale_id, status, current_lot_id, ended_at, bid_increment_table, closing_time_countdown_ms"
     )
     .eq("id", auctionId)
     .maybeSingle();
@@ -33,13 +34,18 @@ export default async function LiveAuctionPage({
   const { data: lotRows } = await supabase
     .from("lots")
     .select(
-      "id, title, images, starting_bid, sort_order, live_status, basta_item_id, estimate_low, estimate_high, description, condition_report, tags"
+      "id, title, images, starting_bid, sort_order, live_status, basta_item_id, estimate_low, estimate_high, description, condition_report, tags, winner_user_id, winning_bid_cents, sold_at"
     )
     .eq("auction_id", auctionId)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
 
   const lots = lotRows ?? [];
+  const winnerDisplayNames = await fetchDisplayNames(
+    lots
+      .map((lot) => lot.winner_user_id)
+      .filter((id): id is string => Boolean(id))
+  );
 
   // M4: seller console writes current_lot_id. Until then, fall back to the
   // first non-sold/passed lot in sort order.
@@ -56,10 +62,18 @@ export default async function LiveAuctionPage({
 
   return (
     <LiveAuctionView
+      tenant={{
+        name: tenant.name,
+        logoUrl: tenant.logo_url,
+        primaryColor: tenant.brand_colors?.primary ?? "#000000",
+        fontDisplay: tenant.font_display,
+        fontMono: tenant.font_mono,
+      }}
       auction={{
         id: auction.id,
         title: auction.title,
         status: auction.status,
+        endedAt: auction.ended_at,
         bastaSaleId: auction.basta_sale_id,
         bidIncrementTable: auction.bid_increment_table,
         closingTimeCountdownMs: auction.closing_time_countdown_ms,
@@ -78,6 +92,12 @@ export default async function LiveAuctionPage({
         description: l.description,
         conditionReport: l.condition_report,
         tags: l.tags ?? [],
+        winnerUserId: l.winner_user_id,
+        winnerDisplayName: l.winner_user_id
+          ? winnerDisplayNames.get(l.winner_user_id) ?? null
+          : null,
+        winningBidCents: l.winning_bid_cents,
+        soldAt: l.sold_at,
       }))}
     />
   );

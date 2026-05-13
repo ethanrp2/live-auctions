@@ -1,7 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { StorefrontLotDetail, StorefrontAuction } from "@/lib/storefront-data";
+import {
+  getWinnerDisplayLabel,
+  getStorefrontAuctionPhase,
+  getStorefrontLotOutcome,
+} from "@/lib/storefront-state";
+import { createClient } from "@/lib/supabase/client";
+import { formatMoneyCents } from "@/lib/format";
 import { AuctionStatusBar } from "./auction-status-bar";
 import { LotInfo } from "./lot-info";
 import { MaxBidSection } from "./max-bid-section";
@@ -23,8 +31,121 @@ interface LotInfoPanelProps {
 
 type ModalState = "none" | "auth" | "payment" | "shipping" | "sms";
 
-export function LotInfoPanel({ lot, auction, isAuthenticated, lotIndex, totalLots, tenantId }: LotInfoPanelProps) {
+function EndedOutcomeCard({
+  auction,
+  lot,
+}: {
+  auction: StorefrontAuction;
+  lot: StorefrontLotDetail;
+}) {
+  const outcome = getStorefrontLotOutcome(lot, auction);
+
+  if (outcome === "sold") {
+    return (
+      <div className="rounded-[10px] border border-[#e7e7e7] bg-[#f7f7f7] p-4">
+        <p
+          className="text-[11px] uppercase tracking-[-0.02em] text-[#5e5e5e]"
+          style={{ fontFamily: "var(--storefront-font-mono)" }}
+        >
+          Sold
+        </p>
+        <p
+          className="mt-2 text-2xl text-black"
+          style={{ fontFamily: "var(--storefront-font-display)" }}
+        >
+          {formatMoneyCents(lot.winning_bid_cents)}
+        </p>
+        <p
+          className="mt-2 text-xs uppercase tracking-[-0.02em] text-[#5e5e5e]"
+          style={{ fontFamily: "var(--storefront-font-mono)" }}
+        >
+          Winner: {getWinnerDisplayLabel(lot)}
+        </p>
+      </div>
+    );
+  }
+
+  if (outcome === "passed") {
+    return (
+      <div className="rounded-[10px] border border-[#e7e7e7] bg-[#f7f7f7] p-4">
+        <p
+          className="text-[11px] uppercase tracking-[-0.02em] text-[#5e5e5e]"
+          style={{ fontFamily: "var(--storefront-font-mono)" }}
+        >
+          Passed
+        </p>
+        <p
+          className="mt-2 text-base text-black"
+          style={{ fontFamily: "var(--storefront-font-display)" }}
+        >
+          This lot did not sell during the auction.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[10px] border border-[#e7e7e7] bg-[#f7f7f7] p-4">
+      <p
+        className="text-[11px] uppercase tracking-[-0.02em] text-[#5e5e5e]"
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        Auction ended
+      </p>
+      <p
+        className="mt-2 text-base text-black"
+        style={{ fontFamily: "var(--storefront-font-display)" }}
+      >
+        This lot closed without a recorded sale.
+      </p>
+    </div>
+  );
+}
+
+export function LotInfoPanel({
+  lot,
+  auction,
+  isAuthenticated,
+  lotIndex,
+  totalLots,
+  tenantId,
+}: LotInfoPanelProps) {
   const [activeModal, setActiveModal] = useState<ModalState>("none");
+  const router = useRouter();
+  const phase = getStorefrontAuctionPhase(auction);
+  const isAuctionEnded = phase === "ended";
+  const isUpcoming = phase === "upcoming";
+
+  useEffect(() => {
+    if (auction.status === "live") {
+      router.replace(`/auctions/${auction.id}/live`);
+      return;
+    }
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`lot-detail:auction:${auction.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "auctions",
+          filter: `id=eq.${auction.id}`,
+        },
+        (payload) => {
+          const next = payload.new as { status?: string | null };
+          if (next.status === "live") {
+            router.replace(`/auctions/${auction.id}/live`);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [auction.id, auction.status, router]);
 
   const handleAuthRequired = () => {
     setActiveModal("auth");
@@ -52,25 +173,28 @@ export function LotInfoPanel({ lot, auction, isAuthenticated, lotIndex, totalLot
     <>
       <div className="flex h-full flex-col">
         <AuctionStatusBar
-          scheduledDate={auction.scheduled_date}
-          onGetAlerted={SMS_ENABLED ? () => setActiveModal("sms") : undefined}
+          auction={auction}
+          onGetAlerted={
+            isUpcoming && SMS_ENABLED ? () => setActiveModal("sms") : undefined
+          }
         />
-        {/* Info section — scrollable */}
         <div className="min-h-0 flex-1 overflow-y-auto border-b border-[#f3f3f3] p-5">
-          <LotInfo lot={lot} lotIndex={lotIndex} totalLots={totalLots} />
+          <LotInfo lot={lot} auction={auction} lotIndex={lotIndex} totalLots={totalLots} />
         </div>
-        {/* Max bid section — pinned at bottom */}
         <div className="shrink-0 p-5">
-          <MaxBidSection
-            lotId={lot.id}
-            startingBid={lot.starting_bid}
-            isAuthenticated={isAuthenticated}
-            onAuthRequired={handleAuthRequired}
-          />
+          {isAuctionEnded ? (
+            <EndedOutcomeCard auction={auction} lot={lot} />
+          ) : (
+            <MaxBidSection
+              lotId={lot.id}
+              startingBid={lot.starting_bid}
+              isAuthenticated={isAuthenticated}
+              onAuthRequired={handleAuthRequired}
+            />
+          )}
         </div>
       </div>
 
-      {/* Modals */}
       <AuthModal
         isOpen={activeModal === "auth"}
         onClose={() => setActiveModal("none")}

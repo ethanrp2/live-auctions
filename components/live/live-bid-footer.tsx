@@ -9,6 +9,8 @@ export type LiveViewerState =
   | { kind: "outbid" }
   | { kind: "sold"; winnerHandle: string; winningPriceCents: number }
   | { kind: "passed" }
+  | { kind: "no_sale" }
+  | { kind: "ended" }
   | { kind: "paused" };
 
 export interface LiveBidFooterProps {
@@ -21,19 +23,19 @@ export interface LiveBidFooterProps {
   onOpenMaxBid: () => void;
   isPlacing: boolean;
   lastError: string | null;
+  showMaxBid: boolean;
 }
 
 function ctaLabel(
   viewerState: LiveViewerState,
   nextIncrementBidCents: number | null,
-  isPlacing: boolean,
-  isAuthenticated: boolean = true
+  isPlacing: boolean
 ): string {
   if (isPlacing) return "PLACING BID…";
-  if (viewerState.kind === "paused") return "PAUSED";
+  if (viewerState.kind === "ended") return "AUCTION ENDED";
+  if (viewerState.kind === "no_sale") return "NO SALE";
   if (viewerState.kind === "passed") return "PASSED";
   if (viewerState.kind === "sold") return "SOLD";
-  if (!isAuthenticated) return "SIGN IN TO BID";
   if (viewerState.kind === "outbid") {
     return nextIncrementBidCents != null
       ? `BID ${formatMoneyCents(nextIncrementBidCents)} NOW`
@@ -54,11 +56,15 @@ export function LiveBidFooter({
   onOpenMaxBid,
   isPlacing,
   lastError,
+  showMaxBid,
 }: LiveBidFooterProps) {
   const isSold = viewerState.kind === "sold";
   const isPassed = viewerState.kind === "passed";
+  const isNoSale = viewerState.kind === "no_sale";
+  const isEnded = viewerState.kind === "ended";
   const isPaused = viewerState.kind === "paused";
-  const ctaDisabled = isPlacing || isSold || isPassed || isPaused;
+  const ctaDisabled =
+    isPlacing || isSold || isPassed || isNoSale || isEnded || isPaused;
 
   if (isPassed) {
     return (
@@ -93,6 +99,36 @@ export function LiveBidFooter({
         >
           By bidding you agree to the Terms of Sale.
         </p>
+      </div>
+    );
+  }
+
+  if (isEnded) {
+    return (
+      <div
+        className="sticky bottom-0 z-10 flex flex-col gap-2 border-t border-[#f3f3f3] bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        <div className="flex h-[50px] items-center justify-center rounded-[2px] bg-black px-4">
+          <span className="text-sm uppercase tracking-[-0.02em] text-white">
+            AUCTION ENDED
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (isNoSale) {
+    return (
+      <div
+        className="sticky bottom-0 z-10 flex flex-col gap-2 border-t border-[#f3f3f3] bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        <div className="flex h-[50px] items-center justify-center rounded-[2px] bg-black px-4">
+          <span className="text-sm uppercase tracking-[-0.02em] text-white">
+            NO SALE
+          </span>
+        </div>
       </div>
     );
   }
@@ -142,15 +178,19 @@ export function LiveBidFooter({
         >
           CUSTOM AMOUNT
         </button>
-        <span className="text-[11px] text-[#5e5e5e]">·</span>
-        <button
-          type="button"
-          onClick={onOpenMaxBid}
-          disabled={isPlacing || isPassed || isPaused}
-          className="text-[11px] uppercase tracking-[-0.02em] text-[#5e5e5e] underline transition-colors hover:text-black disabled:opacity-60"
-        >
-          SET MAX BID
-        </button>
+        {showMaxBid ? (
+          <>
+            <span className="text-[11px] text-[#5e5e5e]">·</span>
+            <button
+              type="button"
+              onClick={onOpenMaxBid}
+              disabled={isPlacing || isPassed || isPaused}
+              className="text-[11px] uppercase tracking-[-0.02em] text-[#5e5e5e] underline transition-colors hover:text-black disabled:opacity-60"
+            >
+              SET MAX BID
+            </button>
+          </>
+        ) : null}
       </div>
 
       {/* Error row */}

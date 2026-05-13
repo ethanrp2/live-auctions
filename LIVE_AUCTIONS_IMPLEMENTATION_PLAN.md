@@ -2,7 +2,7 @@
 
 > Implementation steps, architecture decisions, and progress tracker.
 > For product context and user flows, see `LIVE_AUCTIONS_PLATFORM_OVERVIEW.md`.
-> Last updated: 2026-05-05
+> Last updated: 2026-05-06
 
 ---
 
@@ -55,7 +55,7 @@ Requests hit Next.js middleware (`proxy.ts`). The middleware reads the `Host` he
 - `createSale` + `createItemForSale` (with `allowedBidTypes: [MAX, NORMAL]`) + `publishSale`
 
 **Client API (frontend):**
-- `bidOnItem(type: MAX)` — max bid pre-auction and during live
+- `bidOnItem(type: MAX)` — max bid pre-auction only
 - `bidOnItem(type: NORMAL)` — one-tap live bid + custom amount
 - `saleUpdates(saleId)` subscription (WS) — price, countdown, status
 
@@ -123,8 +123,13 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 ### Step 4: House Storefront (Buyer-Facing Pages) — DONE
 - [x] Auction preview / house home page with hero, lot grid, SMS subscribe widget
 - [x] Lot detail page with image carousel, full metadata, max bid input
+- [x] Storefront lot-card links route to `/lots/[lotId]` for tenant subdomains
+- [x] Live auctions redirect tenant lot-detail URLs into `/auctions/[auctionId]/live`
+- [x] Open lot-detail pages realtime-redirect into the live room when seller starts
 - [x] Account modal with profile, orders, payment method, shipping address
 - [x] All pages responsive (web + mobile)
+- [x] Tenant storefront now redirects logged-in house sellers into seller console/CMS instead of buyer storefront
+- [x] Storefront home + lot detail now render upcoming/live/ended auction states with sold/passed/unsold outcomes and winner/final-price copy for post-auction lots
 
 ### Step 5: Seller Lot CMS — DONE
 - [x] `/seller/auctions` (list) + `/seller/auctions/[id]` (editor)
@@ -142,7 +147,10 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] Countdown timer (`use-countdown.ts`, 250ms tick)
 - [x] Nine components under `components/live/`
 - [x] `<AuthModal>` gating for unauthenticated users
-- [ ] **DEFERRED**: Browser smoke test against a live OPEN Basta sale
+- [x] Desktop live-room layout with full-width image + bidding/sidebar panel
+- [x] Live bid controls stay paused until seller opens a lot from the console
+- [x] Browser smoke test against a live OPEN Basta sale with two buyer bids
+- [x] Buyer-live polish: homepage/account nav in top bar, centered question modal, right-side bid-history sheet, backend-unavailable messaging, MAX bid gated to pre-live only
 - [ ] **DEFERRED**: Figma visual parity pass
 
 ### Step 7: Seller Live Console — DONE
@@ -157,7 +165,7 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] Full desktop console: 3-column layout with lot queue, lot media, seller controls
 - [x] Buyer questions feed with dismiss button
 - [x] Live bid feed (Supabase Realtime on `bids`)
-- [ ] **DEFERRED**: Browser smoke test against a live OPEN Basta sale
+- [x] Browser smoke test against a live OPEN Basta sale: start lot, SELL, PASS, next-lot advance
 
 ### Step 8: Payments (Stripe) — DONE
 - [x] `backend/src/lib/stripe.ts` — Stripe SDK initializer
@@ -191,13 +199,12 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 
 ## Pending Manual Actions
 
-1. **Browser smoke tests** — Test live buyer screen + seller console against a real open Basta sale with two browser sessions (buyer + seller).
-2. **Stripe env vars** — Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` in `backend/.env`; set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in `.env.local`. Register Stripe webhook endpoint at `/api/webhooks/stripe`.
-3. **LiveKit env vars** — Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` in `backend/.env`. Create a LiveKit Cloud project at livekit.io.
-4. **Twilio env vars** — Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` in `backend/.env`. Complete A2P 10DLC registration before US traffic.
-5. **Stripe Connect seller onboarding** — Needs Stripe dashboard setup for connected accounts.
-6. **Basta support email** — Ask about `closeItem`/`pauseSale` primitives and webhook signature spec.
-7. **Figma visual parity pass** — Compare live buyer screen and console against Figma frames.
+1. **Stripe env vars** — Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` in `backend/.env`; set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in `.env.local`. Register Stripe webhook endpoint at `/api/webhooks/stripe`.
+2. **LiveKit env vars** — Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` in `backend/.env`. Create a LiveKit Cloud project at livekit.io.
+3. **Twilio env vars** — Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` in `backend/.env`. Complete A2P 10DLC registration before US traffic.
+4. **Stripe Connect seller onboarding** — Needs Stripe dashboard setup for connected accounts.
+5. **Basta support email** — Ask about `closeItem`/`pauseSale` primitives and webhook signature spec.
+6. **Figma visual parity pass** — Compare live buyer screen and console against Figma frames.
 
 ---
 
@@ -249,6 +256,6 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 
 1. Read `LIVE_AUCTIONS_PLATFORM_OVERVIEW.md` for product context.
 2. Read this file for architecture, progress, and what's next.
-3. All implementation steps 1-10 are code-complete. Next: browser smoke tests + env var setup for Stripe/LiveKit/Twilio.
+3. All implementation steps 1-10 are code-complete. Next: env var setup for Stripe/LiveKit/Twilio and Figma visual parity.
 4. Run `pnpm typecheck` (root) and `cd backend && pnpm typecheck` before and after changes.
 5. Do NOT restart from scratch — build on existing work.

@@ -6,6 +6,10 @@
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
+function backendUnavailableMessage(): string {
+  return `Can't reach the API backend at ${BACKEND_URL}. Run \`pnpm dev:all\` so Fastify starts alongside Next.`;
+}
+
 export interface BidIncrementRule {
   lowRange: number;
   highRange: number;
@@ -23,9 +27,14 @@ export interface BidSupport {
 }
 
 export async function fetchBidSupport(lotId: string): Promise<BidSupport> {
-  const res = await fetch(`${BACKEND_URL}/api/basta/bid-support/${lotId}`, {
-    method: "GET",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND_URL}/api/basta/bid-support/${lotId}`, {
+      method: "GET",
+    });
+  } catch {
+    throw new Error(backendUnavailableMessage());
+  }
 
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };

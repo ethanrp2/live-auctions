@@ -22,6 +22,21 @@ interface PaymentModalProps {
   onComplete: () => void;
 }
 
+function CloseIcon() {
+  return (
+    <svg
+      viewBox="0 0 12 12"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="h-3 w-3"
+      aria-hidden="true"
+    >
+      <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 export interface SavedPaymentMethod {
   id: string;
   brand: string | null;
@@ -202,22 +217,31 @@ export function PaymentModal({ isOpen, onClose, onComplete }: PaymentModalProps)
   const stripe = useMemo(() => getStripe(), []);
 
   return (
-    <ModalOverlay isOpen={isOpen} onClose={onClose}>
+    <ModalOverlay isOpen={isOpen} onClose={onClose} variant="centered">
       <div className="flex flex-col gap-5">
-        {/* Header */}
-        <div className="flex flex-col gap-1.5">
-          <span
-            className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e]"
-            style={{ fontFamily: "var(--storefront-font-mono)" }}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1.5">
+            <span
+              className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e]"
+              style={{ fontFamily: "var(--storefront-font-mono)" }}
+            >
+              REQUIRED
+            </span>
+            <h2
+              className="text-xl font-normal text-black"
+              style={{ fontFamily: "var(--storefront-font-display)" }}
+            >
+              Payment method
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-[#5e5e5e] transition-colors hover:text-black"
+            aria-label="Close payment modal"
           >
-            REQUIRED
-          </span>
-          <h2
-            className="text-xl font-normal text-black"
-            style={{ fontFamily: "var(--storefront-font-display)" }}
-          >
-            Payment method
-          </h2>
+            <CloseIcon />
+          </button>
         </div>
 
         {error && (

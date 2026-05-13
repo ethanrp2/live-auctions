@@ -39,7 +39,7 @@ export async function StorefrontHome({ tenant, user }: StorefrontHomeProps) {
       <AuctionHero tenant={tenant} auction={auction} />
 
       <main className="flex-1 lg:overflow-y-auto">
-        <LotGrid lots={auction.lots} />
+        <LotGrid auction={auction} lots={auction.lots} />
       </main>
 
       {/* Mobile SMS overlay — fixed to bottom, hidden on desktop */}

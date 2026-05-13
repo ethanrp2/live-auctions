@@ -86,12 +86,16 @@ async function apiRequest(
   const token = await getToken();
   if (!token) return { ok: false, error: "Not authenticated" };
   try {
+    const headers: HeadersInit = {
+      Authorization: `Bearer ${token}`,
+    };
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+
     const res = await fetch(`${BACKEND_URL}${path}`, {
       method,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {

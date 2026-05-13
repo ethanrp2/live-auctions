@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { createProxyClient } from "@/lib/supabase/proxy";
 import { getTenantBySlug } from "@/lib/tenant";
 import { createServerClient } from "@supabase/ssr";
+import { getSellerRedirectPathForUser } from "@/lib/seller-redirect";
 
 const PROTECTED_PATHS = ["/account", "/console"];
 const AUTH_PATHS = ["/login", "/signup"];
@@ -30,7 +31,11 @@ export async function proxy(request: NextRequest) {
     // Redirect logged-in users away from auth pages
     if (user && AUTH_PATHS.some((p) => pathname === p)) {
       const homeUrl = request.nextUrl.clone();
-      homeUrl.pathname = "/";
+      const sellerRedirect = await getSellerRedirectPathForUser({
+        supabase,
+        userId: user.id,
+      });
+      homeUrl.pathname = sellerRedirect ?? "/";
       return NextResponse.redirect(homeUrl);
     }
 

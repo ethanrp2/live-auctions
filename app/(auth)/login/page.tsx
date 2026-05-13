@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { getSellerRedirectPathForUser } from "@/lib/seller-redirect";
 import type { Provider } from "@supabase/supabase-js";
 
 export default function LoginPage() {
@@ -25,12 +26,34 @@ function LoginForm() {
 
   const supabase = createClient();
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+      if (!userId || cancelled) return;
+      const sellerRedirect = await getSellerRedirectPathForUser({
+        supabase,
+        userId,
+      });
+      if (cancelled) return;
+      window.location.replace(
+        sellerRedirect && redirectTo === "/" ? sellerRedirect : redirectTo
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [redirectTo, supabase]);
+
   async function handleEmailLogin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -41,7 +64,12 @@ function LoginForm() {
       return;
     }
 
-    window.location.href = redirectTo;
+    const userId = data.user?.id;
+    const sellerRedirect = userId
+      ? await getSellerRedirectPathForUser({ supabase, userId })
+      : null;
+    window.location.href =
+      sellerRedirect && redirectTo === "/" ? sellerRedirect : redirectTo;
   }
 
   async function handleOAuthLogin(provider: Provider) {

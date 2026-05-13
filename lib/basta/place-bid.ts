@@ -56,7 +56,23 @@ export function computeNextBidAmountCents(
 ): number | null {
   if (currentBidCents === 0) return startingBidCents;
 
-  const step = resolveIncrement(currentBidCents, rules);
-  if (step == null) return null;
-  return currentBidCents + step;
+  if (!rules || rules.length === 0) return null;
+
+  const sortedRules = [...rules].sort((a, b) => a.lowRange - b.lowRange);
+
+  for (const rule of sortedRules) {
+    if (currentBidCents >= rule.highRange) continue;
+
+    const base = Math.max(currentBidCents, rule.lowRange);
+    const stepsAboveLowRange =
+      Math.floor((base - rule.lowRange) / rule.step) + 1;
+    const candidate = rule.lowRange + stepsAboveLowRange * rule.step;
+
+    if (candidate > currentBidCents && candidate <= rule.highRange) {
+      return candidate;
+    }
+  }
+
+  const step = resolveIncrement(currentBidCents, sortedRules);
+  return step == null ? null : currentBidCents + step;
 }

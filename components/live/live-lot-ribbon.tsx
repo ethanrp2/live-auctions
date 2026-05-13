@@ -5,7 +5,7 @@ import type { LotRibbonItem } from "@/lib/storefront-data";
 import { pad } from "@/lib/format";
 
 export interface LiveRibbonLot extends LotRibbonItem {
-  liveStatus: "upcoming" | "live" | "sold" | "passed";
+  liveStatus: "upcoming" | "live" | "sold" | "passed" | "ended";
 }
 
 export interface LiveLotRibbonProps {
@@ -47,7 +47,7 @@ function StatusChip({
   status,
   isNext,
 }: {
-  status: "upcoming" | "live" | "sold" | "passed";
+  status: "upcoming" | "live" | "sold" | "passed" | "ended";
   isNext: boolean;
 }) {
   if (status === "sold" || status === "passed") {
@@ -57,6 +57,16 @@ function StatusChip({
         style={{ fontFamily: "var(--storefront-font-mono)" }}
       >
         {status === "passed" ? "Pass" : "Sold"}
+      </span>
+    );
+  }
+  if (status === "ended") {
+    return (
+      <span
+        className="inline-flex items-center rounded-[2px] bg-[#ededed] px-1.5 py-0.5 text-[10px] uppercase tracking-[-0.02em] text-black"
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        Ended
       </span>
     );
   }
@@ -115,8 +125,11 @@ export function LiveLotRibbon({
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {lots.map((lot, index) => {
-          const isLive = lot.id === currentLotId;
-          const isSold = lot.liveStatus === "sold" || lot.liveStatus === "passed";
+          const isSelected = lot.id === currentLotId;
+          const isFinished =
+            lot.liveStatus === "sold" ||
+            lot.liveStatus === "passed" ||
+            lot.liveStatus === "ended";
           const isNext = lot.id === nextLotId && lot.liveStatus === "upcoming";
           const handleClick = onLotClick
             ? (e: React.MouseEvent) => {
@@ -131,7 +144,7 @@ export function LiveLotRibbon({
               type="button"
               onClick={handleClick}
               className={`flex h-[38px] shrink-0 items-center gap-3 rounded-[4px] border px-3 transition-colors ${
-                isLive
+                isSelected
                   ? "border-black bg-black"
                   : "border-[#f0f0f0] hover:border-[#d0d0d0] bg-white"
               }`}
@@ -158,8 +171,8 @@ export function LiveLotRibbon({
 
               <span
                 className={`max-w-[200px] truncate text-xs uppercase tracking-[-0.02em] whitespace-nowrap ${
-                  isLive ? "text-white" : "text-black"
-                } ${isSold ? "line-through" : ""}`}
+                  isSelected ? "text-white" : "text-black"
+                } ${isFinished ? "line-through" : ""}`}
                 style={{ fontFamily: "var(--storefront-font-mono)" }}
               >
                 LOT {pad(index + 1)}: {lot.title.toUpperCase()}

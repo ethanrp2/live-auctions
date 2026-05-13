@@ -3,7 +3,7 @@ import type { Tenant } from "@/lib/tenant";
 import { getStorefrontLotDetail } from "@/lib/storefront-data";
 import { resolveFontVars } from "@/lib/storefront-fonts";
 import { getBadgeTextColor } from "@/lib/color";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { LotHeader } from "./lot-header";
 import { LotRibbon } from "./lot-ribbon";
 import { ImageCarousel } from "./image-carousel";
@@ -24,6 +24,11 @@ export async function LotDetail({ tenant, lotId, user }: LotDetailProps) {
   }
 
   const { lot, auction, ribbonLots } = result;
+
+  if (auction.status === "live") {
+    redirect(`/auctions/${auction.id}/live`);
+  }
+
   const primary = tenant.brand_colors?.primary ?? "#000000";
   const { display: fontDisplay, mono: fontMono } = resolveFontVars(tenant);
   const badgeText = getBadgeTextColor(primary);
@@ -44,11 +49,11 @@ export async function LotDetail({ tenant, lotId, user }: LotDetailProps) {
       }
     >
       <LotHeader auctionTitle={auction.title} />
-      <LotRibbon lots={ribbonLots} currentLotId={lotId} />
+      <LotRibbon auction={auction} lots={ribbonLots} currentLotId={lotId} />
 
       {/* Mobile-only status bar above carousel */}
       <div className="lg:hidden">
-        <AuctionStatusBar scheduledDate={auction.scheduled_date} />
+        <AuctionStatusBar auction={auction} />
       </div>
 
       {/* Main content: image + info panel */}

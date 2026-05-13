@@ -15,9 +15,29 @@ const BRIDGE_SESSION_KEY = "live-auctions:bridge-session";
 
 function readFragmentSession() {
   if (typeof window === "undefined") return null;
-  if (!window.location.hash.startsWith("#la_session=")) return null;
+  if (
+    !window.location.hash.startsWith("#la_session=") &&
+    !window.location.hash.includes("access_token=")
+  ) {
+    return null;
+  }
 
   try {
+    if (window.location.hash.includes("access_token=")) {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      const session = {
+        access_token: params.get("access_token") ?? undefined,
+        refresh_token: params.get("refresh_token") ?? undefined,
+      };
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`
+      );
+      if (!session.access_token || !session.refresh_token) return null;
+      return session;
+    }
+
     const encoded = window.location.hash.slice("#la_session=".length);
     const session = JSON.parse(atob(encoded)) as {
       access_token?: string;

@@ -1,6 +1,14 @@
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
+function backendUnavailableResult(): BastaBidResult {
+  return {
+    ok: false,
+    errorCode: "BACKEND_UNAVAILABLE",
+    error: `Can't reach the API backend at ${BACKEND_URL}. Run \`pnpm dev:all\` so Fastify starts alongside Next.`,
+  };
+}
+
 export type BastaBidType = "MAX" | "NORMAL";
 
 export type BastaBidResult =
@@ -17,6 +25,14 @@ export type BastaBidResult =
       error: string;
     };
 
+function isClosedStateMessage(message: string): boolean {
+  return (
+    message.includes("sale state CLOSED") ||
+    message.includes("ITEM_CLOSED") ||
+    message.includes("item closed")
+  );
+}
+
 export async function bidOnItem(params: {
   supabaseAccessToken: string;
   saleId: string;
@@ -25,19 +41,24 @@ export async function bidOnItem(params: {
   amount: number;
   type: BastaBidType;
 }): Promise<BastaBidResult> {
-  const res = await fetch(`${BACKEND_URL}/api/basta/bid`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.supabaseAccessToken}`,
-    },
-    body: JSON.stringify({
-      saleId: params.saleId,
-      itemId: params.itemId,
-      amountCents: params.amount,
-      type: params.type,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND_URL}/api/basta/bid`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.supabaseAccessToken}`,
+      },
+      body: JSON.stringify({
+        saleId: params.saleId,
+        itemId: params.itemId,
+        amountCents: params.amount,
+        type: params.type,
+      }),
+    });
+  } catch {
+    return backendUnavailableResult();
+  }
 
   const body = (await res.json().catch(() => ({}))) as Partial<BastaBidResult> & {
     error?: string;
@@ -68,6 +89,10 @@ export async function bidOnItem(params: {
  *   BID_TOO_LOW | ITEM_CLOSED | INVALID_TOKEN | UNAUTHORIZED
  */
 export function bidErrorMessage(code: string, fallback: string): string {
+  if (isClosedStateMessage(fallback)) {
+    return "This lot is no longer accepting bids.";
+  }
+
   switch (code) {
     case "BID_TOO_LOW":
       return "Your bid is below the next increment.";
@@ -76,6 +101,8 @@ export function bidErrorMessage(code: string, fallback: string): string {
     case "INVALID_TOKEN":
     case "UNAUTHORIZED":
       return "Your bidding session expired. Please try again.";
+    case "BACKEND_UNAVAILABLE":
+      return fallback;
     default:
       return fallback || "Bid could not be placed. Please try again.";
   }

@@ -2,7 +2,14 @@
 
 import { formatMoneyCents } from "@/lib/format";
 
-export type LiveBannerKind = "winning" | "outbid" | "sold" | "passed" | "paused";
+export type LiveBannerKind =
+  | "winning"
+  | "outbid"
+  | "sold"
+  | "passed"
+  | "no_sale"
+  | "ended"
+  | "paused";
 
 export interface LiveStatusBannerProps {
   kind: LiveBannerKind;
@@ -38,6 +45,14 @@ export function LiveStatusBanner({
     bg = "bg-black";
     text = "text-white";
     label = "Passed";
+  } else if (kind === "no_sale") {
+    bg = "bg-black";
+    text = "text-white";
+    label = "No sale";
+  } else if (kind === "ended") {
+    bg = "bg-black";
+    text = "text-white";
+    label = "Auction ended";
   } else {
     bg = "bg-[#5e5e5e]";
     text = "text-white";

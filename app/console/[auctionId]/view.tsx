@@ -72,6 +72,7 @@ function getLotStatusLabel(
   isActive: boolean,
   isNext: boolean
 ): string {
+  if (liveStatus === "closed") return "CLOSED";
   if (isSoldLot(liveStatus)) {
     if (liveStatus === "passed") return "PASS";
     return "SOLD";
@@ -280,6 +281,9 @@ function XIcon({ className }: { className?: string }) {
 // ── ConsoleView ────────────────────────────────────────────────────────────
 
 export function ConsoleView({ auction, lots, sellerName }: Props) {
+  const [auctionStatus, setAuctionStatus] = useState<string | null>(
+    auction.status
+  );
   const [currentLotId, setCurrentLotId] = useState<string | null>(
     auction.currentLotId
   );
@@ -372,6 +376,8 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
 
   const currentImages = currentLot?.images ?? [];
   const currentImage = currentImages[imageIndex] ?? null;
+  const isAuctionEnded =
+    auctionStatus === "ended" || auctionStatus === "closed";
   const currentLotIsTerminal = isSoldLot(currentLot?.liveStatus ?? null);
 
   // ── Lot queue image carousel lots from saleActivity ────────────────────
@@ -381,7 +387,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   // ── Actions ────────────────────────────────────────────────────────────
 
   async function handleSwitchLot(lotId: string) {
-    if (lotId === currentLotId || isActing) return;
+    if (lotId === currentLotId || isActing || isAuctionEnded) return;
     setIsActing(true);
     setActionError(null);
     const result = await apiPatch(
@@ -398,7 +404,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   }
 
   async function handleSell() {
-    if (!currentLot || isActing) return;
+    if (!currentLot || isActing || isAuctionEnded) return;
     if (currentLotIsTerminal) return;
     if (!topBidder?.userId || currentBidCents == null) {
       setActionError("No bids on this lot yet.");
@@ -423,7 +429,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   }
 
   async function handlePass() {
-    if (!currentLot || isActing || currentLotIsTerminal) return;
+    if (!currentLot || isActing || isAuctionEnded || currentLotIsTerminal) return;
     setIsActing(true);
     setActionError(null);
     const result = await apiPost(`/api/auctions/${auction.id}/pass`, {
@@ -441,12 +447,12 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   }
 
   async function handleNextLot() {
-    if (!nextLot || isActing) return;
+    if (!nextLot || isActing || isAuctionEnded) return;
     await handleSwitchLot(nextLot.id);
   }
 
   async function handleEndAuction() {
-    if (isActing) return;
+    if (isActing || isAuctionEnded) return;
     const confirmed = window.confirm(
       "Are you sure you want to end the auction? This cannot be undone."
     );
@@ -455,6 +461,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
     setActionError(null);
     const result = await apiPost(`/api/auctions/${auction.id}/end`, {});
     if (!result.ok) setActionError(result.error ?? "End auction failed");
+    else setAuctionStatus("ended");
     setIsActing(false);
   }
 
@@ -541,7 +548,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
           <button
             type="button"
             onClick={handleEndAuction}
-            disabled={isActing}
+            disabled={isActing || isAuctionEnded}
             className="rounded-[4px] border border-white/30 px-3 py-1.5 text-[11px] uppercase tracking-widest text-white transition-colors hover:border-white hover:bg-white/10 disabled:opacity-50"
             style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
           >
@@ -597,7 +604,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                   key={lot.id}
                   type="button"
                   onClick={() => handleSwitchLot(lot.id)}
-                  disabled={isActing}
+                  disabled={isActing || isAuctionEnded}
                   className={[
                     "flex w-full items-center gap-3 border-b border-[#f3f3f3] px-3 py-2.5 text-left transition-colors",
                     isActive
@@ -958,7 +965,12 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
               <button
                 type="button"
                 onClick={handleSell}
-                disabled={isActing || currentLotIsTerminal || currentBidCents == null}
+                disabled={
+                  isActing ||
+                  isAuctionEnded ||
+                  currentLotIsTerminal ||
+                  currentBidCents == null
+                }
                 className="w-full rounded-[6px] bg-[#00ad37] py-3 text-[12px] font-semibold uppercase tracking-widest text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
               >
@@ -970,7 +982,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                 <button
                   type="button"
                   onClick={handlePass}
-                  disabled={isActing || currentLotIsTerminal}
+                  disabled={isActing || isAuctionEnded || currentLotIsTerminal}
                   className="flex-1 rounded-[6px] border border-[#e5e5e5] py-2.5 text-[11px] uppercase tracking-widest text-black/60 transition-colors hover:border-black hover:text-black disabled:opacity-40"
                   style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
                 >
@@ -979,7 +991,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                 <button
                   type="button"
                   onClick={handleNextLot}
-                  disabled={isActing || !nextLot}
+                  disabled={isActing || isAuctionEnded || !nextLot}
                   className="flex-1 rounded-[6px] bg-black py-2.5 text-[11px] uppercase tracking-widest text-white transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
                 >

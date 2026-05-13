@@ -66,10 +66,12 @@ interface BidLotRow {
   auction_id: string;
   basta_item_id: string | null;
   starting_bid: number | null;
+  live_status: string | null;
   auctions: {
     id: string;
     basta_sale_id: string | null;
     status: string | null;
+    ended_at: string | null;
   } | null;
 }
 
@@ -156,8 +158,8 @@ export async function bastaBidSupportRoutes(fastify: FastifyInstance) {
       const { data: lot, error: lotError } = await supabaseAdmin
         .from("lots")
         .select(
-          `id, tenant_id, auction_id, basta_item_id, starting_bid,
-           auctions:auctions!lots_auction_id_fkey ( id, basta_sale_id, status )`
+          `id, tenant_id, auction_id, basta_item_id, starting_bid, live_status,
+           auctions:auctions!lots_auction_id_fkey ( id, basta_sale_id, status, ended_at )`
         )
         .eq("basta_item_id", itemId)
         .maybeSingle<BidLotRow>();
@@ -174,6 +176,18 @@ export async function bastaBidSupportRoutes(fastify: FastifyInstance) {
 
       if (!["published", "live"].includes(auction.status ?? "")) {
         return reply.status(409).send({ error: "Auction is not accepting bids" });
+      }
+      if (auction.ended_at) {
+        return reply.status(409).send({ error: "This auction has ended" });
+      }
+      if (type === "NORMAL" && auction.status !== "live") {
+        return reply.status(409).send({ error: "Live bidding has not started yet" });
+      }
+      if (lot.live_status && ["sold", "passed", "closed"].includes(lot.live_status)) {
+        return reply.status(409).send({ error: "This lot is no longer accepting bids" });
+      }
+      if (type === "NORMAL" && lot.live_status !== "live" && lot.live_status !== "closing") {
+        return reply.status(409).send({ error: "The seller has not opened this lot for live bidding yet" });
       }
 
       if (amountCents < (lot.starting_bid ?? 0)) {
@@ -201,6 +215,14 @@ export async function bastaBidSupportRoutes(fastify: FastifyInstance) {
       const placedAtIso = Number.isNaN(placedAt.getTime())
         ? new Date().toISOString()
         : placedAt.toISOString();
+      const mirroredAmountCents =
+        typeof result.amount === "number" && Number.isFinite(result.amount)
+          ? result.amount
+          : amountCents;
+      const mirroredMaxAmountCents =
+        type === "MAX"
+          ? Math.max(amountCents, mirroredAmountCents)
+          : mirroredAmountCents;
 
       const { error: insertError } = await supabaseAdmin.from("bids").upsert(
         {
@@ -209,8 +231,8 @@ export async function bastaBidSupportRoutes(fastify: FastifyInstance) {
           lot_id: lot.id,
           user_id: user.id,
           basta_bid_id: `local:${crypto.randomUUID()}`,
-          amount_cents: result.amount,
-          max_amount_cents: Math.max(amountCents, result.amount),
+          amount_cents: mirroredAmountCents,
+          max_amount_cents: mirroredMaxAmountCents,
           bid_type: type,
           reactive: false,
           placed_at: placedAtIso,
@@ -225,7 +247,7 @@ export async function bastaBidSupportRoutes(fastify: FastifyInstance) {
 
       return reply.send({
         ok: true,
-        amount: result.amount,
+        amount: mirroredAmountCents,
         bidStatus: result.bidStatus,
         date: result.date,
         bidType: type,

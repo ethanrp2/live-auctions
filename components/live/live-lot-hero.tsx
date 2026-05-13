@@ -5,6 +5,7 @@ import { ImageCarousel } from "@/components/storefront/image-carousel";
 export interface LiveLotHeroProps {
   images: string[];
   title: string;
+  heightClass?: string;
   onAskQuestion?: () => void;
 }
 
@@ -34,11 +35,16 @@ function QuestionIcon() {
   );
 }
 
-export function LiveLotHero({ images, title, onAskQuestion }: LiveLotHeroProps) {
+export function LiveLotHero({
+  images,
+  title,
+  heightClass = "h-60",
+  onAskQuestion,
+}: LiveLotHeroProps) {
   const disabled = onAskQuestion === undefined;
   return (
     <div className="relative w-full">
-      <ImageCarousel images={images} alt={title} heightClass="h-60" />
+      <ImageCarousel images={images} alt={title} heightClass={heightClass} />
       <button
         type="button"
         onClick={disabled ? undefined : onAskQuestion}

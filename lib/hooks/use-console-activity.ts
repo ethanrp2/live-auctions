@@ -27,6 +27,7 @@ import {
   type SaleUpdatePayload,
 } from "@/lib/basta/ws";
 import type { BidFeedRow } from "@/lib/hooks/use-bid-feed";
+import { fetchDisplayNames } from "@/lib/profile-display-names";
 
 const RECENT_BID_LIMIT = 100;
 const RECENT_QUESTION_LIMIT = 50;
@@ -52,11 +53,6 @@ type BidsTableRow = {
   bid_type: "MAX" | "NORMAL";
   reactive: boolean;
   placed_at: string;
-};
-
-type ProfileRow = {
-  id: string;
-  display_name: string | null;
 };
 
 type QuestionsTableRow = {
@@ -104,20 +100,12 @@ function parseQuestionText(raw: string): { questionText: string; answerText: str
 
 async function hydrateQuestionRow(
   row: QuestionsTableRow,
-  supabase: ReturnType<typeof createClient>,
   profiles: Map<string, string | null>
 ): Promise<QuestionRow> {
   if (row.user_id && !profiles.has(row.user_id)) {
     profiles.set(row.user_id, null);
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("id, display_name")
-      .eq("id", row.user_id)
-      .maybeSingle<ProfileRow>();
-
-    if (profile) {
-      profiles.set(profile.id, profile.display_name);
-    }
+    const displayNames = await fetchDisplayNames([row.user_id]);
+    profiles.set(row.user_id, displayNames.get(row.user_id) ?? null);
   }
 
   const parsed = parseQuestionText(row.question_text);
@@ -258,15 +246,12 @@ export function useConsoleActivity(
       );
 
       if (userIds.length > 0) {
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("id, display_name")
-          .in("id", userIds);
+        const profileData = await fetchDisplayNames(userIds);
 
         if (cancelled) return;
 
-        for (const p of (profileData ?? []) as ProfileRow[]) {
-          profiles.set(p.id, p.display_name);
+        for (const [id, displayName] of profileData) {
+          profiles.set(id, displayName);
         }
       }
 
@@ -302,23 +287,18 @@ export function useConsoleActivity(
 
             if (userId && !profiles.has(userId)) {
               profiles.set(userId, null);
-              void supabase
-                .from("profiles")
-                .select("id, display_name")
-                .eq("id", userId)
-                .maybeSingle()
-                .then(({ data }) => {
-                  if (cancelled || !data) return;
-                  const p = data as ProfileRow;
-                  profiles.set(p.id, p.display_name);
-                  setBids((prev) =>
-                    prev.map((b) =>
-                      b.userId === p.id
-                        ? { ...b, displayName: resolveDisplayName(p.id, profiles) }
-                        : b
-                    )
-                  );
-                });
+              void fetchDisplayNames([userId]).then((data) => {
+                if (cancelled) return;
+                const displayName = data.get(userId) ?? null;
+                profiles.set(userId, displayName);
+                setBids((prev) =>
+                  prev.map((b) =>
+                    b.userId === userId
+                      ? { ...b, displayName: resolveDisplayName(userId, profiles) }
+                      : b
+                  )
+                );
+              });
             }
 
             const next: BidFeedRow = {
@@ -391,7 +371,7 @@ export function useConsoleActivity(
 
       const hydratedQuestions = await Promise.all(
         ((qData ?? []) as QuestionsTableRow[]).map((row) =>
-          hydrateQuestionRow(row, supabase, questionProfiles)
+          hydrateQuestionRow(row, questionProfiles)
         )
       );
       if (cancelled) return;
@@ -412,7 +392,7 @@ export function useConsoleActivity(
             if (cancelled) return;
             const row = payload.new as QuestionsTableRow;
             if (row.dismissed) return;
-            void hydrateQuestionRow(row, supabase, questionProfiles).then((next) => {
+            void hydrateQuestionRow(row, questionProfiles).then((next) => {
               if (cancelled) return;
               setQuestions((prev) => {
                 if (prev.some((q) => q.id === next.id)) return prev;
@@ -437,7 +417,7 @@ export function useConsoleActivity(
               setQuestions((prev) => prev.filter((q) => q.id !== row.id));
               return;
             }
-            void hydrateQuestionRow(row, supabase, questionProfiles).then((next) => {
+            void hydrateQuestionRow(row, questionProfiles).then((next) => {
               if (cancelled) return;
               setQuestions((prev) =>
                 prev.map((q) => (q.id === next.id ? next : q))

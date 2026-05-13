@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getSellerRedirectPathForUser } from "@/lib/seller-redirect";
 
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost";
 
@@ -48,6 +49,23 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
+      if (!next || next === "/") {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user) {
+          const sellerRedirect = await getSellerRedirectPathForUser({
+            supabase,
+            userId: user.id,
+          });
+          if (sellerRedirect) {
+            const sellerUrl = request.nextUrl.clone();
+            sellerUrl.pathname = sellerRedirect;
+            sellerUrl.search = "";
+            return NextResponse.redirect(sellerUrl);
+          }
+        }
+      }
       return NextResponse.redirect(resolveNext(request, next));
     }
   }

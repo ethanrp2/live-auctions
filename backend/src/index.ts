@@ -11,9 +11,11 @@ import { consoleSellerRoutes } from "./routes/seller/console.js";
 import { sellerOnboardingRoutes } from "./routes/seller-onboarding.js";
 import { livekitTokenRoutes } from "./routes/livekit-token.js";
 import { buyerPaymentRoutes } from "./routes/buyer/payment.js";
+import { buyerProfileRoutes } from "./routes/buyer/profile.js";
 import { buyerSmsRoutes } from "./routes/buyer/sms.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { questionRoutes } from "./routes/questions.js";
+import { profileDisplayNameRoutes } from "./routes/profile-display-names.js";
 import { config } from "./config.js";
 
 const fastify = Fastify({ logger: true });
@@ -46,8 +48,10 @@ async function start() {
   await fastify.register(sellerOnboardingRoutes);
   await fastify.register(livekitTokenRoutes);
   await fastify.register(buyerPaymentRoutes);
+  await fastify.register(buyerProfileRoutes);
   await fastify.register(buyerSmsRoutes);
   await fastify.register(questionRoutes);
+  await fastify.register(profileDisplayNameRoutes);
   // Stripe webhook is registered as its own plugin so its raw-body content
   // type parser is encapsulated and doesn't affect other routes.
   await fastify.register(stripeWebhookRoutes);

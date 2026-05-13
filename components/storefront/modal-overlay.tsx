@@ -7,7 +7,7 @@ interface ModalOverlayProps {
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;
-  variant?: "default" | "sheet";
+  variant?: "default" | "sheet" | "centered";
   label?: string;
   title?: string;
 }
@@ -40,19 +40,22 @@ export function ModalOverlay({
   if (!isOpen) return null;
 
   const isSheet = variant === "sheet";
+  const isCentered = variant === "centered";
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end lg:items-center lg:justify-center"
+      className={`fixed inset-0 z-50 flex ${isSheet ? "items-end lg:items-center lg:justify-center" : "items-center justify-center p-4"}`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div className="sheet-backdrop-enter absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
 
-      <div className="relative z-10 w-full lg:max-w-[460px]">
+      <div
+        className={`relative z-10 w-full ${isCentered ? "max-w-[460px]" : "lg:max-w-[460px]"}`}
+      >
         <div
-          className={`${isSheet ? "sheet-enter max-h-[85vh] overflow-hidden rounded-t-2xl bg-white lg:max-h-none lg:rounded-md" : "rounded-t-xl bg-white lg:rounded-md"}`}
+          className={`${isSheet ? "sheet-enter max-h-[85vh] overflow-hidden rounded-t-2xl bg-white lg:max-h-none lg:rounded-md" : "rounded-2xl bg-white"}`}
         >
           {isSheet ? (
             <div className="flex flex-col">

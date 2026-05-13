@@ -58,8 +58,14 @@ export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
   const [profile, setProfile] = useState<ProfileRow | null>(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setCurrentUser(null);
+      setProfile(null);
+      return;
+    }
     let cancelled = false;
+    setCurrentUser(null);
+    setProfile(null);
     void (async () => {
       const {
         data: { user },

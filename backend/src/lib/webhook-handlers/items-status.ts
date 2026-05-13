@@ -20,6 +20,8 @@ const LIVE_STATUS_MAP: Record<string, string | null> = {
   CLOSED: "closed",
 };
 
+const LOCAL_TERMINAL_STATUSES = new Set(["sold", "passed"]);
+
 export async function handleItemsStatusChanged(
   data: BastaItemsStatusChangedData,
   log: FastifyBaseLogger
@@ -34,12 +36,46 @@ export async function handleItemsStatusChanged(
       continue;
     }
 
-    const { error, data: updated } = await supabaseAdmin
+    const { data: current, error: lookupError } = await supabaseAdmin
+      .from("lots")
+      .select("id, live_status")
+      .eq("basta_item_id", change.itemId)
+      .maybeSingle<{ id: string; live_status: string | null }>();
+
+    if (lookupError) {
+      log.error(
+        { err: lookupError, itemId: change.itemId },
+        "lot live_status lookup failed"
+      );
+      throw lookupError;
+    }
+
+    if (!current) {
+      log.warn(
+        { itemId: change.itemId, itemStatus: change.itemStatus },
+        "ItemsStatusChanged for unknown item — skipping"
+      );
+      continue;
+    }
+
+    if (LOCAL_TERMINAL_STATUSES.has(current.live_status ?? "")) {
+      log.info(
+        {
+          lotId: current.id,
+          itemId: change.itemId,
+          currentLiveStatus: current.live_status,
+          webhookLiveStatus: mapped,
+        },
+        "preserving local terminal lot status over Basta webhook"
+      );
+      continue;
+    }
+
+    const { error } = await supabaseAdmin
       .from("lots")
       .update({ live_status: mapped })
-      .eq("basta_item_id", change.itemId)
-      .select("id")
-      .maybeSingle();
+      .eq("id", current.id)
+      .select("id");
 
     if (error) {
       log.error(
@@ -49,17 +85,9 @@ export async function handleItemsStatusChanged(
       throw error;
     }
 
-    if (!updated) {
-      log.warn(
-        { itemId: change.itemId, itemStatus: change.itemStatus },
-        "ItemsStatusChanged for unknown item — skipping"
-      );
-      continue;
-    }
-
     log.info(
       {
-        lotId: updated.id,
+        lotId: current.id,
         itemId: change.itemId,
         liveStatus: mapped,
       },

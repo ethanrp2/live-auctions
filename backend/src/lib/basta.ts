@@ -74,7 +74,7 @@ interface PublishSaleResponse {
 type ClientBidResult =
   | {
       ok: true;
-      amount: number;
+      amount: number | null;
       bidStatus: string;
       date: string;
     }
@@ -220,9 +220,9 @@ export async function bidOnItemWithToken(params: {
       bidOnItem?:
         | {
             __typename: "BidPlacedSuccess";
-            amount: number;
-            bidStatus: string;
-            date: string;
+            amount?: number | null;
+            bidStatus?: string | null;
+            date?: string | null;
           }
         | {
             __typename: "BidPlacedError";
@@ -260,8 +260,8 @@ export async function bidOnItemWithToken(params: {
 
   return {
     ok: true,
-    amount: payload.amount,
-    bidStatus: payload.bidStatus,
-    date: payload.date,
+    amount: typeof payload.amount === "number" ? payload.amount : null,
+    bidStatus: payload.bidStatus ?? "PLACED",
+    date: payload.date ?? new Date().toISOString(),
   };
 }

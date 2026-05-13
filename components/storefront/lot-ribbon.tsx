@@ -2,10 +2,18 @@
 
 import { useRef } from "react";
 import Link from "next/link";
-import type { LotRibbonItem } from "@/lib/storefront-data";
+import {
+  type LotRibbonItem,
+  type StorefrontAuction,
+} from "@/lib/storefront-data";
+import {
+  getStorefrontAuctionPhase,
+  getStorefrontLotOutcome,
+} from "@/lib/storefront-state";
 import { pad } from "@/lib/format";
 
 interface LotRibbonProps {
+  auction: Pick<StorefrontAuction, "status" | "ended_at">;
   lots: LotRibbonItem[];
   currentLotId: string;
 }
@@ -26,8 +34,47 @@ function ChevronRight() {
   );
 }
 
-export function LotRibbon({ lots, currentLotId }: LotRibbonProps) {
+function StatusChip({
+  outcome,
+}: {
+  outcome: ReturnType<typeof getStorefrontLotOutcome>;
+}) {
+  if (outcome === "sold") {
+    return (
+      <span
+        className="inline-flex items-center rounded-[2px] bg-[#848484] px-1.5 py-0.5 text-[10px] uppercase tracking-[-0.02em] text-white"
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        Sold
+      </span>
+    );
+  }
+  if (outcome === "passed") {
+    return (
+      <span
+        className="inline-flex items-center rounded-[2px] bg-[#848484] px-1.5 py-0.5 text-[10px] uppercase tracking-[-0.02em] text-white"
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        Pass
+      </span>
+    );
+  }
+  if (outcome === "ended") {
+    return (
+      <span
+        className="inline-flex items-center rounded-[2px] bg-[#ededed] px-1.5 py-0.5 text-[10px] uppercase tracking-[-0.02em] text-black"
+        style={{ fontFamily: "var(--storefront-font-mono)" }}
+      >
+        Ended
+      </span>
+    );
+  }
+  return null;
+}
+
+export function LotRibbon({ auction, lots, currentLotId }: LotRibbonProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const phase = getStorefrontAuctionPhase(auction);
 
   const scroll = (direction: "left" | "right") => {
     if (!scrollRef.current) return;
@@ -37,24 +84,30 @@ export function LotRibbon({ lots, currentLotId }: LotRibbonProps) {
 
   return (
     <div className="relative flex h-[60px] shrink-0 items-center border-b border-[#f3f3f3] bg-white">
-      {/* Left arrow (desktop only) */}
       <button
         type="button"
         onClick={() => scroll("left")}
-        className="hidden lg:flex h-full w-10 shrink-0 items-center justify-center text-[#5e5e5e] transition-colors hover:text-black"
+        className="hidden h-full w-10 shrink-0 items-center justify-center text-[#5e5e5e] transition-colors hover:text-black lg:flex"
         aria-label="Scroll left"
       >
         <ChevronLeft />
       </button>
 
-      {/* Scrollable lot strip */}
       <div
         ref={scrollRef}
-        className="flex flex-1 items-center gap-2.5 overflow-x-auto px-4 lg:px-0 scrollbar-hide"
+        className="scrollbar-hide flex flex-1 items-center gap-2.5 overflow-x-auto px-4 lg:px-0"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {lots.map((lot, index) => {
           const isCurrent = lot.id === currentLotId;
+          const outcome = getStorefrontLotOutcome(
+            {
+              live_status: lot.live_status,
+              winning_bid_cents: lot.winning_bid_cents,
+            },
+            auction
+          );
+
           return (
             <Link
               key={lot.id}
@@ -65,15 +118,10 @@ export function LotRibbon({ lots, currentLotId }: LotRibbonProps) {
                   : "border-[#f0f0f0] hover:border-[#d0d0d0]"
               }`}
             >
-              {/* Thumbnail — wide rounded rectangle */}
               <div className="relative h-[22px] min-w-[18px] max-w-[41px] shrink-0 overflow-hidden rounded bg-[#f3f3f3]">
                 {lot.thumbnail ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={lot.thumbnail}
-                    alt=""
-                    className="h-[22px] w-auto object-cover"
-                  />
+                  <img src={lot.thumbnail} alt="" className="h-[22px] w-auto object-cover" />
                 ) : (
                   <div className="flex h-full w-[30px] items-center justify-center">
                     <span
@@ -86,23 +134,27 @@ export function LotRibbon({ lots, currentLotId }: LotRibbonProps) {
                 )}
               </div>
 
-              {/* Lot number + title */}
               <span
-                className="max-w-[200px] truncate text-xs uppercase tracking-[-0.02em] whitespace-nowrap text-black"
+                className={`max-w-[200px] truncate whitespace-nowrap text-xs uppercase tracking-[-0.02em] text-black ${
+                  phase === "ended" && (outcome === "sold" || outcome === "passed")
+                    ? "line-through"
+                    : ""
+                }`}
                 style={{ fontFamily: "var(--storefront-font-mono)" }}
               >
                 LOT {pad(index + 1)}: {lot.title.toUpperCase()}
               </span>
+
+              {phase === "ended" ? <StatusChip outcome={outcome} /> : null}
             </Link>
           );
         })}
       </div>
 
-      {/* Right arrow (desktop only) */}
       <button
         type="button"
         onClick={() => scroll("right")}
-        className="hidden lg:flex h-full w-10 shrink-0 items-center justify-center text-[#5e5e5e] transition-colors hover:text-black"
+        className="hidden h-full w-10 shrink-0 items-center justify-center text-[#5e5e5e] transition-colors hover:text-black lg:flex"
         aria-label="Scroll right"
       >
         <ChevronRight />

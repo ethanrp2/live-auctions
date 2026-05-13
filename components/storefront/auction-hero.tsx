@@ -1,6 +1,7 @@
 import type { Tenant } from "@/lib/tenant";
 import type { StorefrontAuction } from "@/lib/storefront-data";
-import { formatLiveDate } from "@/lib/format";
+import { getStorefrontAuctionPhase } from "@/lib/storefront-state";
+import { formatAuctionScheduleDate, formatElapsedSince, formatLiveDate } from "@/lib/format";
 import { BastaLogo } from "./basta-logo";
 import { SmsSubscribe } from "./sms-subscribe";
 
@@ -40,6 +41,13 @@ function CalendarIcon() {
 export function AuctionHero({ tenant, auction }: AuctionHeroProps) {
   const hasHeroImage = Boolean(tenant.hero_image_url);
   const primary = tenant.brand_colors?.primary ?? "#000000";
+  const phase = getStorefrontAuctionPhase(auction);
+  const statusLabel =
+    phase === "ended"
+      ? `ENDED ${formatAuctionScheduleDate(auction.ended_at ?? auction.scheduled_date)}`
+      : phase === "live"
+        ? `LIVE NOW · ${formatElapsedSince(auction.went_live_at ?? auction.scheduled_date)} ELAPSED`
+        : formatLiveDate(auction.scheduled_date);
 
   return (
     <section className="relative flex h-[360px] w-full shrink-0 flex-col justify-between overflow-hidden p-6 lg:h-full lg:w-[480px] lg:p-[30px]">
@@ -88,7 +96,7 @@ export function AuctionHero({ tenant, auction }: AuctionHeroProps) {
               color: "var(--storefront-hero-text-secondary)",
             }}
           >
-            {formatLiveDate(auction.scheduled_date)}
+            {statusLabel}
           </span>
         </div>
         <h1

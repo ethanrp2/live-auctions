@@ -1,4 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchDisplayNames } from "@/lib/profile-display-names";
+import { getSellerRedirectPathForUser } from "@/lib/seller-redirect";
+import {
+  getStorefrontAuctionPhase,
+  getStorefrontLotOutcome,
+  getWinnerDisplayLabel,
+  type StorefrontAuctionPhase,
+  type StorefrontLotOutcome,
+} from "@/lib/storefront-state";
 
 export interface StorefrontLot {
   id: string;
@@ -9,6 +18,11 @@ export interface StorefrontLot {
   estimate_high: number | null;
   starting_bid: number | null;
   sort_order: number | null;
+  live_status?: string | null;
+  winner_user_id?: string | null;
+  winner_display_name?: string | null;
+  winning_bid_cents?: number | null;
+  sold_at?: string | null;
 }
 
 export interface StorefrontAuction {
@@ -16,6 +30,10 @@ export interface StorefrontAuction {
   title: string;
   description: string | null;
   scheduled_date: string;
+  status: string | null;
+  current_lot_id: string | null;
+  went_live_at: string | null;
+  ended_at: string | null;
   lots: StorefrontLot[];
 }
 
@@ -35,6 +53,43 @@ export interface LotRibbonItem {
   title: string;
   thumbnail: string | null;
   sort_order: number | null;
+  live_status?: string | null;
+  winning_bid_cents?: number | null;
+  winner_display_name?: string | null;
+}
+
+interface AuctionRow {
+  id: string;
+  title: string;
+  description: string | null;
+  scheduled_date: string | null;
+  status: string | null;
+  current_lot_id: string | null;
+  went_live_at: string | null;
+  ended_at: string | null;
+}
+
+interface LotRow {
+  id: string;
+  auction_id: string;
+  title: string;
+  images: string[] | null;
+  tags: string[] | null;
+  estimate_low: number | null;
+  estimate_high: number | null;
+  starting_bid: number | null;
+  sort_order: number | null;
+  description?: string | null;
+  condition_report?: string | null;
+  measurements?: string | null;
+  year?: number | null;
+  provenance?: string | null;
+  item_location?: string | null;
+  shipping_terms?: string | null;
+  live_status: string | null;
+  winner_user_id: string | null;
+  winning_bid_cents: number | null;
+  sold_at: string | null;
 }
 
 // All money values in cents (see docs/memory/architecture/money-units.md).
@@ -44,20 +99,150 @@ const MOCK_AUCTION: StorefrontAuction = {
   description:
     "Our team emphasizes sourcing garments that show signs of aging and wear. We like to showcase clothes that others would see as imperfect or, in some cases, unwearable. We take pride in selling garments with these characteristics.",
   scheduled_date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString(),
+  status: "published",
+  current_lot_id: null,
+  went_live_at: null,
+  ended_at: null,
   lots: [
-    { id: "m1", title: "'Leave Me Alone\" T-Shirt", images: [
-      "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600&h=800&fit=crop",
-      "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=600&h=800&fit=crop",
-      "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?w=600&h=800&fit=crop",
-    ], brand: null, estimate_low: 6500, estimate_high: 6500, starting_bid: 1000, sort_order: 0 },
-    { id: "m2", title: "Misfits 'Crimson Ghost Faded Black S...", images: [], brand: null, estimate_low: 6500, estimate_high: 6500, starting_bid: 1500, sort_order: 1 },
-    { id: "m3", title: "Thrashed Sistine Chapel T-Shirt", images: [], brand: null, estimate_low: 16000, estimate_high: 16000, starting_bid: 3000, sort_order: 2 },
-    { id: "m4", title: "Led Zepellin Thrashed & Safety Pinne...", images: [], brand: null, estimate_low: 27500, estimate_high: 27500, starting_bid: 7500, sort_order: 3 },
-    { id: "m5", title: "'Byte Me' T-Shirt", images: [], brand: null, estimate_low: 6000, estimate_high: 6000, starting_bid: 1000, sort_order: 4 },
-    { id: "m6", title: "1991 New York Post T-Shirt", images: [], brand: null, estimate_low: 6500, estimate_high: 6500, starting_bid: 1500, sort_order: 5 },
-    { id: "m7", title: "Cross Patch Denim Jacket", images: [], brand: "CHROME HEARTS", estimate_low: null, estimate_high: null, starting_bid: 8000, sort_order: 6 },
-    { id: "m8", title: "Cross Patch Denim Jacket", images: [], brand: "CHROME HEARTS", estimate_low: null, estimate_high: null, starting_bid: 2000, sort_order: 7 },
-    { id: "m9", title: "Cross Patch Denim Jacket", images: [], brand: "CHROME HEARTS", estimate_low: null, estimate_high: null, starting_bid: 2500, sort_order: 8 },
+    {
+      id: "m1",
+      title: "'Leave Me Alone\" T-Shirt",
+      images: [
+        "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600&h=800&fit=crop",
+        "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=600&h=800&fit=crop",
+        "https://images.unsplash.com/photo-1618354691373-d851c5c3a990?w=600&h=800&fit=crop",
+      ],
+      brand: null,
+      estimate_low: 6500,
+      estimate_high: 6500,
+      starting_bid: 1000,
+      sort_order: 0,
+      live_status: "upcoming",
+      winner_user_id: null,
+      winner_display_name: null,
+      winning_bid_cents: null,
+      sold_at: null,
+    },
+    {
+      id: "m2",
+      title: "Misfits 'Crimson Ghost Faded Black S...",
+      images: [],
+      brand: null,
+      estimate_low: 6500,
+      estimate_high: 6500,
+      starting_bid: 1500,
+      sort_order: 1,
+      live_status: "upcoming",
+      winner_user_id: null,
+      winner_display_name: null,
+      winning_bid_cents: null,
+      sold_at: null,
+    },
+    {
+      id: "m3",
+      title: "Thrashed Sistine Chapel T-Shirt",
+      images: [],
+      brand: null,
+      estimate_low: 16000,
+      estimate_high: 16000,
+      starting_bid: 3000,
+      sort_order: 2,
+      live_status: "upcoming",
+      winner_user_id: null,
+      winner_display_name: null,
+      winning_bid_cents: null,
+      sold_at: null,
+    },
+    {
+      id: "m4",
+      title: "Led Zepellin Thrashed & Safety Pinne...",
+      images: [],
+      brand: null,
+      estimate_low: 27500,
+      estimate_high: 27500,
+      starting_bid: 7500,
+      sort_order: 3,
+      live_status: "upcoming",
+      winner_user_id: null,
+      winner_display_name: null,
+      winning_bid_cents: null,
+      sold_at: null,
+    },
+    {
+      id: "m5",
+      title: "'Byte Me' T-Shirt",
+      images: [],
+      brand: null,
+      estimate_low: 6000,
+      estimate_high: 6000,
+      starting_bid: 1000,
+      sort_order: 4,
+      live_status: "upcoming",
+      winner_user_id: null,
+      winner_display_name: null,
+      winning_bid_cents: null,
+      sold_at: null,
+    },
+    {
+      id: "m6",
+      title: "1991 New York Post T-Shirt",
+      images: [],
+      brand: null,
+      estimate_low: 6500,
+      estimate_high: 6500,
+      starting_bid: 1500,
+      sort_order: 5,
+      live_status: "upcoming",
+      winner_user_id: null,
+      winner_display_name: null,
+      winning_bid_cents: null,
+      sold_at: null,
+    },
+    {
+      id: "m7",
+      title: "Cross Patch Denim Jacket",
+      images: [],
+      brand: "CHROME HEARTS",
+      estimate_low: null,
+      estimate_high: null,
+      starting_bid: 8000,
+      sort_order: 6,
+      live_status: "upcoming",
+      winner_user_id: null,
+      winner_display_name: null,
+      winning_bid_cents: null,
+      sold_at: null,
+    },
+    {
+      id: "m8",
+      title: "Cross Patch Denim Jacket",
+      images: [],
+      brand: "CHROME HEARTS",
+      estimate_low: null,
+      estimate_high: null,
+      starting_bid: 2000,
+      sort_order: 7,
+      live_status: "upcoming",
+      winner_user_id: null,
+      winner_display_name: null,
+      winning_bid_cents: null,
+      sold_at: null,
+    },
+    {
+      id: "m9",
+      title: "Cross Patch Denim Jacket",
+      images: [],
+      brand: "CHROME HEARTS",
+      estimate_low: null,
+      estimate_high: null,
+      starting_bid: 2500,
+      sort_order: 8,
+      live_status: "upcoming",
+      winner_user_id: null,
+      winner_display_name: null,
+      winning_bid_cents: null,
+      sold_at: null,
+    },
   ],
 };
 
@@ -100,11 +285,73 @@ const MOCK_LOT_DETAILS: Record<string, Omit<StorefrontLotDetail, keyof Storefron
   },
 };
 
+function normalizeAuctionDate(value: string | null, fallback?: string | null): string {
+  return value ?? fallback ?? new Date().toISOString();
+}
+
+async function loadWinnerDisplayNames(lots: Array<{ winner_user_id: string | null }>) {
+  const winnerIds = Array.from(
+    new Set(lots.map((lot) => lot.winner_user_id).filter((id): id is string => Boolean(id)))
+  );
+  return fetchDisplayNames(winnerIds);
+}
+
+function mapStorefrontLot(row: LotRow, winnerDisplayNames: Map<string, string | null>): StorefrontLot {
+  return {
+    id: row.id,
+    title: row.title,
+    images: row.images ?? [],
+    brand: row.tags && row.tags.length > 0 ? row.tags[0] : null,
+    estimate_low: row.estimate_low,
+    estimate_high: row.estimate_high,
+    starting_bid: row.starting_bid,
+    sort_order: row.sort_order,
+    live_status: row.live_status,
+    winner_user_id: row.winner_user_id,
+    winner_display_name: row.winner_user_id
+      ? winnerDisplayNames.get(row.winner_user_id) ?? null
+      : null,
+    winning_bid_cents: row.winning_bid_cents,
+    sold_at: row.sold_at,
+  };
+}
+
+function mapStorefrontLotDetail(
+  row: LotRow,
+  winnerDisplayNames: Map<string, string | null>
+): StorefrontLotDetail {
+  return {
+    ...mapStorefrontLot(row, winnerDisplayNames),
+    description: row.description ?? null,
+    condition_report: row.condition_report ?? null,
+    measurements: row.measurements ?? null,
+    year: row.year ?? null,
+    provenance: row.provenance ?? null,
+    item_location: row.item_location ?? null,
+    shipping_terms: row.shipping_terms ?? null,
+    tags: row.tags ?? [],
+  };
+}
+
+export async function getSellerTenantRedirectPath(params: {
+  tenantId: string;
+  userId: string;
+}): Promise<string | null> {
+  const supabase = await createClient();
+  return getSellerRedirectPathForUser({
+    supabase,
+    userId: params.userId,
+    tenantId: params.tenantId,
+  });
+}
+
 function getMockLotDetail(lotId: string): StorefrontLotDetail | null {
-  const baseLot = MOCK_AUCTION.lots.find((l) => l.id === lotId);
+  const baseLot = MOCK_AUCTION.lots.find((lot) => lot.id === lotId);
   if (!baseLot) return null;
+
   const details = MOCK_LOT_DETAILS[lotId] ?? {
-    description: "A unique vintage piece curated by our team. Every garment tells a story through its wear and aging.",
+    description:
+      "A unique vintage piece curated by our team. Every garment tells a story through its wear and aging.",
     condition_report: "Good. Minor signs of wear consistent with age.",
     measurements: "Chest: 22\" / Length: 28\" / Sleeve: 8.5\"",
     year: null,
@@ -113,7 +360,46 @@ function getMockLotDetail(lotId: string): StorefrontLotDetail | null {
     shipping_terms: "Ships within 3 business days. Domestic only. Buyer pays shipping.",
     tags: ["VINTAGE"],
   };
+
   return { ...baseLot, ...details };
+}
+
+async function pickStorefrontAuctionRow(tenantId: string): Promise<AuctionRow | null> {
+  const supabase = await createClient();
+
+  const { data: liveAuction } = await supabase
+    .from("auctions")
+    .select("id, title, description, scheduled_date, status, current_lot_id, went_live_at, ended_at")
+    .eq("tenant_id", tenantId)
+    .eq("status", "live")
+    .order("went_live_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<AuctionRow>();
+
+  if (liveAuction) return liveAuction;
+
+  const { data: upcomingAuction } = await supabase
+    .from("auctions")
+    .select("id, title, description, scheduled_date, status, current_lot_id, went_live_at, ended_at")
+    .eq("tenant_id", tenantId)
+    .eq("status", "published")
+    .order("scheduled_date", { ascending: true })
+    .limit(1)
+    .maybeSingle<AuctionRow>();
+
+  if (upcomingAuction) return upcomingAuction;
+
+  const { data: endedAuction } = await supabase
+    .from("auctions")
+    .select("id, title, description, scheduled_date, status, current_lot_id, went_live_at, ended_at")
+    .eq("tenant_id", tenantId)
+    .in("status", ["ended", "closed"])
+    .order("ended_at", { ascending: false })
+    .order("scheduled_date", { ascending: false })
+    .limit(1)
+    .maybeSingle<AuctionRow>();
+
+  return endedAuction ?? null;
 }
 
 export async function getStorefrontLotDetail(
@@ -127,57 +413,48 @@ export async function getStorefrontLotDetail(
 } | null> {
   const supabase = await createClient();
 
-  // Try to fetch the real lot
   const { data: lotRow } = await supabase
     .from("lots")
     .select(
-      "id, auction_id, title, images, tags, estimate_low, estimate_high, starting_bid, sort_order, description, condition_report, measurements, year, provenance, item_location, shipping_terms"
+      "id, auction_id, title, images, tags, estimate_low, estimate_high, starting_bid, sort_order, description, condition_report, measurements, year, provenance, item_location, shipping_terms, live_status, winner_user_id, winning_bid_cents, sold_at"
     )
     .eq("id", lotId)
-    .maybeSingle();
+    .maybeSingle<LotRow>();
 
   if (lotRow) {
-    // Fetch the parent auction
     const { data: auctionRow } = await supabase
       .from("auctions")
-      .select("id, title, description, scheduled_date, tenant_id")
+      .select(
+        "id, title, description, scheduled_date, status, current_lot_id, tenant_id, went_live_at, ended_at"
+      )
       .eq("id", lotRow.auction_id)
-      .single();
+      .single<(AuctionRow & { tenant_id: string }) | null>();
 
     if (!auctionRow || auctionRow.tenant_id !== tenantId) return null;
 
-    // Fetch sibling lots for ribbon
     const { data: siblingRows } = await supabase
       .from("lots")
-      .select("id, title, images, sort_order")
+      .select(
+        "id, auction_id, title, images, tags, estimate_low, estimate_high, starting_bid, sort_order, live_status, winner_user_id, winning_bid_cents, sold_at"
+      )
       .eq("auction_id", auctionRow.id)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
 
-    const lot: StorefrontLotDetail = {
-      id: lotRow.id,
-      title: lotRow.title,
-      images: lotRow.images ?? [],
-      brand: lotRow.tags && lotRow.tags.length > 0 ? lotRow.tags[0] : null,
-      estimate_low: lotRow.estimate_low,
-      estimate_high: lotRow.estimate_high,
-      starting_bid: lotRow.starting_bid,
-      sort_order: lotRow.sort_order,
-      description: lotRow.description,
-      condition_report: lotRow.condition_report,
-      measurements: lotRow.measurements,
-      year: lotRow.year,
-      provenance: lotRow.provenance,
-      item_location: lotRow.item_location,
-      shipping_terms: lotRow.shipping_terms,
-      tags: lotRow.tags ?? [],
-    };
+    const allLots = [lotRow, ...((siblingRows ?? []) as LotRow[]).filter((row) => row.id !== lotRow.id)];
+    const winnerDisplayNames = await loadWinnerDisplayNames(allLots);
 
-    const ribbonLots: LotRibbonItem[] = (siblingRows ?? []).map((r) => ({
-      id: r.id,
-      title: r.title,
-      thumbnail: r.images && r.images.length > 0 ? r.images[0] : null,
-      sort_order: r.sort_order,
+    const lot = mapStorefrontLotDetail(lotRow, winnerDisplayNames);
+    const ribbonLots: LotRibbonItem[] = ((siblingRows ?? []) as LotRow[]).map((row) => ({
+      id: row.id,
+      title: row.title,
+      thumbnail: row.images && row.images.length > 0 ? row.images[0] : null,
+      sort_order: row.sort_order,
+      live_status: row.live_status,
+      winning_bid_cents: row.winning_bid_cents,
+      winner_display_name: row.winner_user_id
+        ? winnerDisplayNames.get(row.winner_user_id) ?? null
+        : null,
     }));
 
     return {
@@ -186,7 +463,11 @@ export async function getStorefrontLotDetail(
         id: auctionRow.id,
         title: auctionRow.title,
         description: auctionRow.description,
-        scheduled_date: auctionRow.scheduled_date,
+        scheduled_date: normalizeAuctionDate(auctionRow.scheduled_date, auctionRow.ended_at),
+        status: auctionRow.status,
+        current_lot_id: auctionRow.current_lot_id,
+        went_live_at: auctionRow.went_live_at,
+        ended_at: auctionRow.ended_at,
         lots: [],
       },
       ribbonLots,
@@ -194,15 +475,17 @@ export async function getStorefrontLotDetail(
     };
   }
 
-  // Mock fallback
   const mockLot = getMockLotDetail(lotId);
   if (!mockLot) return null;
 
-  const ribbonLots: LotRibbonItem[] = MOCK_AUCTION.lots.map((l) => ({
-    id: l.id,
-    title: l.title,
-    thumbnail: l.images.length > 0 ? l.images[0] : null,
-    sort_order: l.sort_order,
+  const ribbonLots: LotRibbonItem[] = MOCK_AUCTION.lots.map((lot) => ({
+    id: lot.id,
+    title: lot.title,
+    thumbnail: lot.images.length > 0 ? lot.images[0] : null,
+    sort_order: lot.sort_order,
+    live_status: lot.live_status,
+    winning_bid_cents: lot.winning_bid_cents,
+    winner_display_name: lot.winner_display_name,
   }));
 
   return {
@@ -217,18 +500,7 @@ export async function getStorefrontAuction(
   tenantId: string
 ): Promise<{ auction: StorefrontAuction; isMock: boolean }> {
   const supabase = await createClient();
-
-  // Show the most relevant auction: a live one first, else the next published upcoming one.
-  // Mock fallback kicks in only if neither exists.
-  const { data: auctionRow } = await supabase
-    .from("auctions")
-    .select("id, title, description, scheduled_date, status")
-    .eq("tenant_id", tenantId)
-    .in("status", ["live", "published"])
-    .order("status", { ascending: true }) // 'live' sorts before 'published' alphabetically
-    .order("scheduled_date", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  const auctionRow = await pickStorefrontAuctionRow(tenantId);
 
   if (!auctionRow) {
     return { auction: MOCK_AUCTION, isMock: true };
@@ -236,28 +508,28 @@ export async function getStorefrontAuction(
 
   const { data: lotRows } = await supabase
     .from("lots")
-    .select("id, title, images, tags, estimate_low, estimate_high, starting_bid, sort_order")
+    .select(
+      "id, auction_id, title, images, tags, estimate_low, estimate_high, starting_bid, sort_order, live_status, winner_user_id, winning_bid_cents, sold_at"
+    )
     .eq("auction_id", auctionRow.id)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
 
-  const lots: StorefrontLot[] = (lotRows ?? []).map((row) => ({
-    id: row.id,
-    title: row.title,
-    images: row.images ?? [],
-    brand: row.tags && row.tags.length > 0 ? row.tags[0] : null,
-    estimate_low: row.estimate_low,
-    estimate_high: row.estimate_high,
-    starting_bid: row.starting_bid,
-    sort_order: row.sort_order,
-  }));
+  const winnerDisplayNames = await loadWinnerDisplayNames((lotRows ?? []) as LotRow[]);
+  const lots = ((lotRows ?? []) as LotRow[]).map((row) =>
+    mapStorefrontLot(row, winnerDisplayNames)
+  );
 
   return {
     auction: {
       id: auctionRow.id,
       title: auctionRow.title,
       description: auctionRow.description,
-      scheduled_date: auctionRow.scheduled_date,
+      scheduled_date: normalizeAuctionDate(auctionRow.scheduled_date, auctionRow.ended_at),
+      status: auctionRow.status,
+      current_lot_id: auctionRow.current_lot_id,
+      went_live_at: auctionRow.went_live_at,
+      ended_at: auctionRow.ended_at,
       lots,
     },
     isMock: false,

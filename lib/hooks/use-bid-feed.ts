@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { fetchDisplayNames } from "@/lib/profile-display-names";
 
 const RECENT_BID_LIMIT = 50;
 
@@ -31,11 +32,6 @@ type BidsTableRow = {
   bid_type: "MAX" | "NORMAL";
   reactive: boolean;
   placed_at: string;
-};
-
-type ProfileRow = {
-  id: string;
-  display_name: string | null;
 };
 
 type UseBidFeedResult = {
@@ -109,20 +105,12 @@ export function useBidFeed(lotId: string | null): UseBidFeedResult {
       );
 
       if (userIds.length > 0) {
-        const { data: profileData, error: profileError } = await supabase
-          .from("profiles")
-          .select("id, display_name")
-          .in("id", userIds);
+        const profileData = await fetchDisplayNames(userIds);
 
         if (cancelled) return;
 
-        if (profileError) {
-          setError(new Error(profileError.message));
-          // Don't bail — we can still render the feed with "Anonymous".
-        } else {
-          for (const p of (profileData ?? []) as ProfileRow[]) {
-            profiles.set(p.id, p.display_name);
-          }
+        for (const [id, displayName] of profileData) {
+          profiles.set(id, displayName);
         }
       }
 
@@ -160,26 +148,21 @@ export function useBidFeed(lotId: string | null): UseBidFeedResult {
             // rewritten in place when the name arrives.
             if (userId && !profiles.has(userId)) {
               profiles.set(userId, null);
-              void supabase
-                .from("profiles")
-                .select("id, display_name")
-                .eq("id", userId)
-                .maybeSingle()
-                .then(({ data }) => {
-                  if (cancelled || !data) return;
-                  const p = data as ProfileRow;
-                  profiles.set(p.id, p.display_name);
-                  setBids((prev) =>
-                    prev.map((b) =>
-                      b.userId === p.id
-                        ? {
-                            ...b,
-                            displayName: resolveDisplayName(p.id, profiles),
-                          }
-                        : b
-                    )
-                  );
-                });
+              void fetchDisplayNames([userId]).then((data) => {
+                if (cancelled) return;
+                const displayName = data.get(userId) ?? null;
+                profiles.set(userId, displayName);
+                setBids((prev) =>
+                  prev.map((b) =>
+                    b.userId === userId
+                      ? {
+                          ...b,
+                          displayName: resolveDisplayName(userId, profiles),
+                        }
+                      : b
+                  )
+                );
+              });
             }
 
             const next: BidFeedRow = {

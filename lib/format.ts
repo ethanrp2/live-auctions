@@ -63,7 +63,7 @@ export function parseDollarsToCents(input: string): number {
   return Math.round(dollars * 100);
 }
 
-export function formatLiveDate(iso: string): string {
+export function formatAuctionScheduleDate(iso: string): string {
   const date = new Date(iso);
   const month = date
     .toLocaleString("en-US", { month: "short" })
@@ -76,5 +76,22 @@ export function formatLiveDate(iso: string): string {
       hour12: true,
     })
     .toLowerCase();
-  return `LIVE ${month} ${day} AT ${time}`;
+  return `${month} ${day} AT ${time}`;
+}
+
+export function formatLiveDate(iso: string): string {
+  return `LIVE ${formatAuctionScheduleDate(iso)}`;
+}
+
+export function formatElapsedSince(iso: string, now = Date.now()): string {
+  const elapsedMs = Math.max(0, now - new Date(iso).getTime());
+  const elapsedMinutes = Math.floor(elapsedMs / (1000 * 60));
+
+  if (elapsedMinutes < 1) return "UNDER 1 MIN";
+  if (elapsedMinutes < 60) return `${elapsedMinutes} MIN`;
+
+  const hours = Math.floor(elapsedMinutes / 60);
+  const minutes = elapsedMinutes % 60;
+  if (minutes === 0) return `${hours} HR`;
+  return `${hours} HR ${minutes} MIN`;
 }

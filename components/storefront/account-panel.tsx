@@ -36,6 +36,14 @@ interface PaymentMethodSummary {
   last4: string | null;
 }
 
+interface BuyerShippingAddress {
+  street1: string | null;
+  street2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+}
+
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
@@ -162,12 +170,32 @@ export function AccountPanel({ isOpen, onClose, user }: AccountPanelProps) {
 
   const loadShipping = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from("profiles")
-      .select("shipping_address")
-      .eq("id", user.id)
-      .maybeSingle<{ shipping_address: unknown | null }>();
-    setShippingSaved(Boolean(data?.shipping_address));
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const res = await fetch(`${BACKEND_URL}/api/buyer/profile`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        shippingAddress?: BuyerShippingAddress;
+        hasSavedAddress?: boolean;
+      };
+      setShippingSaved(
+        Boolean(
+          json.hasSavedAddress ??
+            json.shippingAddress?.street1 ??
+            json.shippingAddress?.street2 ??
+            json.shippingAddress?.city ??
+            json.shippingAddress?.state ??
+            json.shippingAddress?.postalCode
+        )
+      );
+    } catch {
+      // ignore — leave shipping summary in last-known state
+    }
   }, [supabase, user]);
 
   useEffect(() => {
@@ -402,7 +430,6 @@ export function AccountPanel({ isOpen, onClose, user }: AccountPanelProps) {
           setShowShippingModal(false);
           void loadShipping();
         }}
-        onBack={() => setShowShippingModal(false)}
       />
     </>,
     document.body
