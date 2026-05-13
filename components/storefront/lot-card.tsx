@@ -50,8 +50,8 @@ export function LotCard({ auction, lot, index, total }: LotCardProps) {
   const cover = lot.images[0];
 
   return (
-    <Link href={`/lots/${lot.id}`} className="block">
-      <article className="flex h-[380px] flex-col overflow-hidden rounded-md border border-[#f3f3f3] bg-white transition-shadow hover:shadow-md">
+    <Link href={`/lots/${lot.id}`} className="block h-full">
+      <article className="flex h-full min-h-[420px] flex-col overflow-hidden rounded-[4px] border border-[#f3f3f3] bg-white transition-shadow hover:shadow-md">
         <header className="flex h-10 shrink-0 items-center justify-between border-b border-[#f3f3f3] bg-white px-4 py-3">
           <span
             className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e]"
@@ -75,23 +75,29 @@ export function LotCard({ auction, lot, index, total }: LotCardProps) {
           </span>
         </header>
 
-        <div className="relative min-h-0 flex-1 border-b border-[#f3f3f3] bg-white">
-          {cover ? (
-            <div className="absolute inset-0 flex items-center justify-center overflow-hidden p-5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={cover} alt={lot.title} className="max-h-full max-w-full object-contain" />
-            </div>
-          ) : (
-            <div
-              className="absolute inset-0 flex items-center justify-center text-[10px] uppercase tracking-widest text-[#c9c9c9]"
-              style={{ fontFamily: "var(--storefront-font-mono)" }}
-            >
-              No image
-            </div>
-          )}
+        <div className="border-b border-[#f3f3f3] bg-white">
+          <div className="relative aspect-[4/5] w-full p-5">
+            {cover ? (
+              <div className="flex h-full items-center justify-center overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={cover}
+                  alt={lot.title}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+            ) : (
+              <div
+                className="flex h-full items-center justify-center text-[10px] uppercase tracking-widest text-[#c9c9c9]"
+                style={{ fontFamily: "var(--storefront-font-mono)" }}
+              >
+                No image
+              </div>
+            )}
+          </div>
         </div>
 
-        <footer className="flex flex-col justify-center gap-1 p-3">
+        <footer className="flex min-h-[92px] flex-col justify-center gap-1 p-3">
           {lot.brand ? (
             <>
               <span

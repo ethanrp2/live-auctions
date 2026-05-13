@@ -10,11 +10,15 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onComplete: () => void;
+  tenantId?: string;
+  tenantSlug?: string;
 }
 
 interface ProfileRow {
   display_name: string | null;
   avatar_url: string | null;
+  is_seller?: boolean | null;
+  tenant_id?: string | null;
 }
 
 function GoogleIcon() {
@@ -51,8 +55,20 @@ function AppleIcon() {
   );
 }
 
-export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
+type AccountRole = "buyer" | "seller";
+
+export function AuthModal({
+  isOpen,
+  onClose,
+  onComplete,
+  tenantId,
+  tenantSlug,
+}: AuthModalProps) {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [accountRole, setAccountRole] = useState<AccountRole>("buyer");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const supabase = useMemo(() => createClient(), []);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
@@ -75,7 +91,7 @@ export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
       if (user) {
         const { data } = await supabase
           .from("profiles")
-          .select("display_name, avatar_url")
+          .select("display_name, avatar_url, is_seller, tenant_id")
           .eq("id", user.id)
           .maybeSingle<ProfileRow>();
         if (!cancelled) setProfile(data ?? null);
@@ -88,10 +104,55 @@ export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
     };
   }, [isOpen, supabase]);
 
-  const handleContinue = (e: React.FormEvent) => {
+  const handleContinue = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email.trim()) {
+    setError(null);
+    setLoading(true);
+    try {
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (signInError) throw signInError;
+
+      const userId = data.user?.id;
+      if (!userId) throw new Error("Sign in did not return a user.");
+
+      const { data: signedInProfile } = await supabase
+        .from("profiles")
+        .select("display_name, avatar_url, is_seller, tenant_id")
+        .eq("id", userId)
+        .maybeSingle<ProfileRow>();
+
+      const isSeller = Boolean(signedInProfile?.is_seller);
+      const isThisHouseSeller =
+        isSeller && Boolean(tenantId) && signedInProfile?.tenant_id === tenantId;
+
+      if (accountRole === "seller") {
+        if (!isThisHouseSeller) {
+          await supabase.auth.signOut({ scope: "local" });
+          setError("This seller account is not assigned to this house.");
+          return;
+        }
+        window.location.assign(
+          `/seller/auctions${tenantSlug ? `?house=${encodeURIComponent(tenantSlug)}` : ""}`
+        );
+        return;
+      }
+
+      if (isSeller) {
+        await supabase.auth.signOut({ scope: "local" });
+        setError("Use Seller Sign In for this account.");
+        return;
+      }
+
+      setCurrentUser(data.user);
+      setProfile(signedInProfile ?? null);
       onComplete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign in failed.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -115,8 +176,27 @@ export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
           className="text-center text-sm uppercase tracking-[-0.02em] text-black"
           style={{ fontFamily: "var(--storefront-font-mono)" }}
         >
-          MUST BE SIGNED IN TO BID
+          {accountRole === "buyer" ? "BUYER SIGN IN" : "SELLER SIGN IN"}
         </h2>
+
+        <div className="grid grid-cols-2 rounded-[4px] border border-[#f3f3f3] bg-white">
+          {(["buyer", "seller"] as const).map((role) => (
+            <button
+              key={role}
+              type="button"
+              onClick={() => {
+                setAccountRole(role);
+                setError(null);
+              }}
+              className={`h-[42px] text-xs uppercase tracking-[-0.02em] transition-colors ${
+                accountRole === role ? "bg-black text-white" : "bg-white text-[#9c9c9c]"
+              }`}
+              style={{ fontFamily: "var(--storefront-font-mono)" }}
+            >
+              {role}
+            </button>
+          ))}
+        </div>
 
         {/* OAuth buttons */}
         <div className="flex flex-col gap-3">
@@ -151,6 +231,15 @@ export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
         </div>
 
         {/* Email form */}
+        {error && (
+          <div
+            className="rounded-[4px] border border-[#ff0004]/30 bg-[#ff0004]/5 px-3 py-2 text-xs text-[#ff0004]"
+            style={{ fontFamily: "var(--storefront-font-mono)" }}
+          >
+            {error}
+          </div>
+        )}
+
         <form onSubmit={handleContinue} className="flex flex-col gap-3">
           <div className="relative">
             <input
@@ -158,16 +247,29 @@ export function AuthModal({ isOpen, onClose, onComplete }: AuthModalProps) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email address"
+              required
+              className="h-[50px] w-full rounded border border-[#bababa] bg-white px-4 text-sm text-black outline-none placeholder:text-[#9c9c9c] focus:border-black"
+              style={{ fontFamily: "var(--storefront-font-display)" }}
+            />
+          </div>
+          <div className="relative">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              required
               className="h-[50px] w-full rounded border border-[#bababa] bg-white px-4 text-sm text-black outline-none placeholder:text-[#9c9c9c] focus:border-black"
               style={{ fontFamily: "var(--storefront-font-display)" }}
             />
           </div>
           <button
             type="submit"
+            disabled={loading}
             className="flex h-[50px] items-center justify-center rounded bg-black text-sm uppercase tracking-[-0.02em] text-white transition-opacity hover:opacity-90"
             style={{ fontFamily: "var(--storefront-font-mono)" }}
           >
-            CONTINUE
+            {loading ? "SIGNING IN..." : "SIGN IN"}
           </button>
         </form>
 
