@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { AuctionsListView, type AuctionListItem } from "./view";
+import {
+  AuctionsListView,
+  type AuctionListItem,
+  type SellerHouseSummary,
+} from "./view";
 
 interface BackendAuctionRow {
   id: string;
@@ -16,7 +20,12 @@ interface BackendAuctionRow {
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 
-export default async function SellerAuctionsPage() {
+export default async function SellerAuctionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ house?: string | string[] }>;
+}) {
+  const params = await searchParams;
   const supabase = await createClient();
 
   const {
@@ -24,7 +33,7 @@ export default async function SellerAuctionsPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    redirect("/");
   }
 
   const { data: profile } = await supabase
@@ -35,6 +44,43 @@ export default async function SellerAuctionsPage() {
 
   if (!profile?.is_seller) {
     redirect("/");
+  }
+
+  if (!profile.tenant_id) {
+    return (
+      <AuctionsListView
+        auctions={[]}
+        fetchError="This seller account is not assigned to a house."
+        sellerName={profile.display_name ?? "Seller"}
+        houses={[]}
+        selectedHouseSlug={null}
+      />
+    );
+  }
+
+  const { data: tenant } = await supabase
+    .from("tenants")
+    .select("id, slug, name, description, logo_url, brand_colors")
+    .eq("id", profile.tenant_id)
+    .maybeSingle<{
+      id: string;
+      slug: string;
+      name: string;
+      description: string | null;
+      logo_url: string | null;
+      brand_colors: Record<string, string> | null;
+    }>();
+
+  if (!tenant) {
+    return (
+      <AuctionsListView
+        auctions={[]}
+        fetchError="The house assigned to this seller account could not be found."
+        sellerName={profile.display_name ?? "Seller"}
+        houses={[]}
+        selectedHouseSlug={null}
+      />
+    );
   }
 
   const { data: sessionData } = await supabase.auth.getSession();
@@ -87,11 +133,33 @@ export default async function SellerAuctionsPage() {
     fetchError = "Not authenticated";
   }
 
+  const totalLots = auctions.reduce((sum, auction) => sum + auction.lotCount, 0);
+  const activeAuctions = auctions.filter((auction) => {
+    const status = (auction.status ?? "draft").toLowerCase();
+    return status === "draft" || status === "published" || status === "scheduled" || status === "live";
+  }).length;
+  const house: SellerHouseSummary = {
+    id: tenant.id,
+    slug: tenant.slug,
+    name: tenant.name,
+    description: tenant.description,
+    logoUrl: tenant.logo_url,
+    primaryColor: tenant.brand_colors?.primary ?? "#000000",
+    auctionCount: auctions.length,
+    activeAuctionCount: activeAuctions,
+    lotCount: totalLots,
+  };
+
+  const requestedHouse = Array.isArray(params.house) ? params.house[0] : params.house;
+  const selectedHouseSlug = requestedHouse === tenant.slug ? tenant.slug : null;
+
   return (
     <AuctionsListView
       auctions={auctions}
       fetchError={fetchError}
       sellerName={profile.display_name ?? "Seller"}
+      houses={[house]}
+      selectedHouseSlug={selectedHouseSlug}
     />
   );
 }

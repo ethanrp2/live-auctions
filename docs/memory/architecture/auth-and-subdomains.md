@@ -33,7 +33,7 @@ Defined in [`proxy.ts`](../../../proxy.ts):
 
 ## Auth UI
 
-- `/login` and `/signup` — email+password and OAuth (Google, Apple, X/Twitter) wired via Supabase. See `app/(auth)/`.
+- Root-level platform and tenant home pages now serve as the canonical sign-in entrypoints, with `/signup` retained for account creation. See `app/(auth)/` and the home pages.
 - `/seller/onboarding` — tenant-scoped single-seller signup. Uses `admin.createUser` with `email_confirm: true` (i.e., skips verification). See `app/seller/onboarding/page.tsx` + `backend/src/routes/seller-onboarding.ts`. **Hardcoded to one seller per tenant** — lift in M5.
 - `/seller/invite/[token]` — planned in M5 for invited teammates.
 

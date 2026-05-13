@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoneyCents } from "@/lib/format";
+import { getSellerRedirectPathForUser } from "@/lib/seller-redirect";
 import type { User } from "@supabase/supabase-js";
 
 interface PlatformHomeProps {
@@ -20,30 +21,6 @@ interface OrderRow {
 }
 
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost";
-const BRIDGE_SESSION_KEY = "live-auctions:bridge-session";
-
-function cacheBridgeSession(session: {
-  access_token: string;
-  refresh_token: string;
-  expires_at?: number;
-} | null) {
-  if (typeof window === "undefined") return;
-  if (window.location.hostname !== ROOT_DOMAIN) return;
-
-  if (!session) {
-    window.localStorage.removeItem(BRIDGE_SESSION_KEY);
-    return;
-  }
-
-  window.localStorage.setItem(
-    BRIDGE_SESSION_KEY,
-    JSON.stringify({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      expires_at: session.expires_at,
-    })
-  );
-}
 
 function houseUrl(slug: string): string {
   if (typeof window === "undefined") {
@@ -124,8 +101,7 @@ function LoggedInDashboard({ user }: { user: User }) {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    cacheBridgeSession(null);
-    window.location.reload();
+    window.location.assign("/");
   };
 
   const handleHouseVisit = async (
@@ -341,15 +317,23 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
       if (mode === "signup") {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        cacheBridgeSession(data.session);
         setError("Check your email to confirm your account.");
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        cacheBridgeSession(data.session);
+        const sellerRedirect = data.user?.id
+          ? await getSellerRedirectPathForUser({
+              supabase,
+              userId: data.user.id,
+            })
+          : null;
         const next = new URLSearchParams(window.location.search).get("next");
         if (next) {
           window.location.assign(withLocalSessionHash(next, data.session));
+          return;
+        }
+        if (sellerRedirect) {
+          window.location.assign(sellerRedirect);
           return;
         }
         onSuccess();

@@ -71,7 +71,7 @@ export default async function SellerAuctionEditorPage({
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    redirect("/login");
+    redirect("/");
   }
 
   const { data: profile } = await supabase
@@ -88,7 +88,7 @@ export default async function SellerAuctionEditorPage({
   const accessToken = sessionData.session?.access_token ?? null;
 
   if (!accessToken) {
-    redirect("/login");
+    redirect("/");
   }
 
   const res = await fetch(`${BACKEND_URL}/api/seller/auctions/${auctionId}`, {

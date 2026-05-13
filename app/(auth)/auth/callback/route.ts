@@ -71,6 +71,6 @@ export async function GET(request: NextRequest) {
   }
 
   const loginUrl = request.nextUrl.clone();
-  loginUrl.pathname = "/login";
+  loginUrl.pathname = "/";
   return NextResponse.redirect(loginUrl);
 }

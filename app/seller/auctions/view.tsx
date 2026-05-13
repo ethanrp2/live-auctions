@@ -17,10 +17,24 @@ export interface AuctionListItem {
   lotCount: number;
 }
 
+export interface SellerHouseSummary {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  logoUrl: string | null;
+  primaryColor: string;
+  auctionCount: number;
+  activeAuctionCount: number;
+  lotCount: number;
+}
+
 interface Props {
   auctions: AuctionListItem[];
   fetchError: string | null;
   sellerName: string;
+  houses: SellerHouseSummary[];
+  selectedHouseSlug: string | null;
 }
 
 function formatScheduledDate(iso: string | null): string {
@@ -58,16 +72,191 @@ function statusBadgeClasses(status: string | null): string {
   return "bg-[#f3f3f3] text-black/60";
 }
 
-export function AuctionsListView({ auctions, fetchError, sellerName }: Props) {
+function pluralize(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? "" : "S"}`;
+}
+
+function sellerHouseUrl(slug: string): string {
+  if (typeof window === "undefined") return `/${slug}`;
+
+  const { protocol, hostname, port } = window.location;
+  const hostParts = hostname.split(".");
+  const rootHost =
+    hostname === "localhost" || hostname.endsWith(".localhost")
+      ? "localhost"
+      : hostParts.length > 2
+        ? hostParts.slice(1).join(".")
+        : hostname;
+  const portSuffix = port ? `:${port}` : "";
+
+  return `${protocol}//${slug}.${rootHost}${portSuffix}`;
+}
+
+function SellerHouseLanding({
+  houses,
+  fetchError,
+}: {
+  houses: SellerHouseSummary[];
+  fetchError: string | null;
+}) {
+  const primaryHouse = houses[0] ?? null;
+
+  return (
+    <div className="mx-auto w-full max-w-5xl px-6 py-10">
+      <div className="mb-8 flex items-end justify-between gap-4">
+        <div>
+          <p
+            className="mb-3 text-[11px] uppercase tracking-widest text-black/40"
+            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+          >
+            SELLER HOUSES
+          </p>
+          <h1
+            className="text-[36px] leading-none text-black"
+            style={{ fontFamily: "var(--font-ivypresto, var(--font-inter))" }}
+          >
+            Your houses
+          </h1>
+        </div>
+        <span
+          className="text-[11px] uppercase tracking-widest text-black/40"
+          style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+        >
+          {houses.length} TOTAL
+        </span>
+      </div>
+
+      {fetchError && (
+        <div className="mb-4 rounded-[4px] border border-[#ff0004]/30 bg-[#ff0004]/5 px-4 py-3 text-[12px] text-[#ff0004]">
+          {fetchError}
+        </div>
+      )}
+
+      {!primaryHouse ? (
+        <div className="rounded-[4px] border border-dashed border-[#e5e5e5] bg-[#fafafa] px-6 py-14">
+          <p
+            className="text-[13px] uppercase tracking-widest text-black/60"
+            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+          >
+            NO HOUSE ASSIGNED
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {houses.map((house) => (
+            <div
+              key={house.id}
+              className="overflow-hidden rounded-[4px] border border-[#f3f3f3] bg-white"
+            >
+              <div className="grid gap-0 md:grid-cols-[1.1fr_0.9fr]">
+                <div className="flex min-h-[260px] flex-col justify-between bg-black p-8 text-white">
+                  <div className="flex items-start justify-between gap-6">
+                    <div>
+                      <p
+                        className="mb-4 text-[11px] uppercase tracking-widest text-white/45"
+                        style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+                      >
+                        HOUSE
+                      </p>
+                      <h2
+                        className="text-[44px] leading-none"
+                        style={{ fontFamily: "var(--font-ivypresto, var(--font-inter))" }}
+                      >
+                        {house.name}
+                      </h2>
+                    </div>
+                    <div
+                      className="h-3 w-3 shrink-0"
+                      style={{ backgroundColor: house.primaryColor }}
+                    />
+                  </div>
+                  <p
+                    className="mt-8 max-w-xl text-[13px] leading-6 text-white/55"
+                    style={{ fontFamily: "var(--font-inter)" }}
+                  >
+                    {house.description ?? "Manage this house's auctions, lots, live console, and storefront."}
+                  </p>
+                </div>
+
+                <div className="flex flex-col justify-between border-l border-[#f3f3f3] p-8">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-[4px] border border-[#f3f3f3] px-4 py-4">
+                      <p className="text-[28px] leading-none text-black" style={{ fontFamily: "var(--font-inter)" }}>
+                        {house.auctionCount}
+                      </p>
+                      <p className="mt-3 text-[10px] uppercase tracking-widest text-black/40" style={{ fontFamily: "var(--font-ibm-plex-mono)" }}>
+                        {pluralize(house.auctionCount, "AUCTION").replace(/^\d+ /, "")}
+                      </p>
+                    </div>
+                    <div className="rounded-[4px] border border-[#f3f3f3] px-4 py-4">
+                      <p className="text-[28px] leading-none text-black" style={{ fontFamily: "var(--font-inter)" }}>
+                        {house.activeAuctionCount}
+                      </p>
+                      <p className="mt-3 text-[10px] uppercase tracking-widest text-black/40" style={{ fontFamily: "var(--font-ibm-plex-mono)" }}>
+                        ACTIVE
+                      </p>
+                    </div>
+                    <div className="rounded-[4px] border border-[#f3f3f3] px-4 py-4">
+                      <p className="text-[28px] leading-none text-black" style={{ fontFamily: "var(--font-inter)" }}>
+                        {house.lotCount}
+                      </p>
+                      <p className="mt-3 text-[10px] uppercase tracking-widest text-black/40" style={{ fontFamily: "var(--font-ibm-plex-mono)" }}>
+                        LOTS
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 flex flex-col gap-3">
+                    <Link
+                      href={`/seller/auctions?house=${encodeURIComponent(house.slug)}`}
+                      className="flex h-[50px] items-center justify-center rounded-[4px] bg-black px-5 text-[12px] uppercase tracking-widest text-white transition-opacity hover:opacity-90"
+                      style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+                    >
+                      MANAGE HOUSE →
+                    </Link>
+                    <a
+                      href={sellerHouseUrl(house.slug)}
+                      className="flex h-[50px] items-center justify-center rounded-[4px] border border-[#e5e5e5] px-5 text-[12px] uppercase tracking-widest text-black/60 transition-colors hover:border-black hover:text-black"
+                      style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+                    >
+                      OPEN STOREFRONT →
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AuctionsListView({
+  auctions,
+  fetchError,
+  sellerName,
+  houses,
+  selectedHouseSlug,
+}: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+  const selectedHouse = houses.find((house) => house.slug === selectedHouseSlug) ?? null;
 
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newScheduledDate, setNewScheduledDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    await supabase.auth.signOut();
+    router.replace("/");
+    router.refresh();
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -136,32 +325,57 @@ export function AuctionsListView({ auctions, fetchError, sellerName }: Props) {
             {sellerName}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="h-[34px] rounded-[4px] bg-white px-4 text-[11px] uppercase tracking-widest text-black transition-opacity hover:opacity-90"
-          style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
-        >
-          + NEW AUCTION
-        </button>
+        <div className="flex items-center gap-2">
+          {selectedHouse ? (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="h-[34px] rounded-[4px] bg-white px-4 text-[11px] uppercase tracking-widest text-black transition-opacity hover:opacity-90"
+              style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+            >
+              + NEW AUCTION
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="h-[34px] rounded-[4px] border border-white/25 px-4 text-[11px] uppercase tracking-widest text-white/65 transition-colors hover:border-white hover:text-white disabled:opacity-40"
+            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+          >
+            {loggingOut ? "LOGGING OUT" : "LOGOUT"}
+          </button>
+        </div>
       </div>
 
       {/* Body */}
-      <div className="mx-auto w-full max-w-5xl px-6 py-10">
-        <div className="mb-6 flex items-center justify-between">
-          <h1
-            className="text-[14px] uppercase tracking-widest text-black"
-            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
-          >
-            YOUR AUCTIONS
-          </h1>
-          <span
-            className="text-[11px] uppercase tracking-widest text-black/40"
-            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
-          >
-            {auctions.length} TOTAL
-          </span>
-        </div>
+      {!selectedHouse ? (
+        <SellerHouseLanding houses={houses} fetchError={fetchError} />
+      ) : (
+        <div className="mx-auto w-full max-w-5xl px-6 py-10">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <Link
+                href="/seller/auctions"
+                className="mb-3 inline-flex text-[11px] uppercase tracking-widest text-black/40 transition-colors hover:text-black"
+                style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+              >
+                ← HOUSES
+              </Link>
+              <h1
+                className="text-[14px] uppercase tracking-widest text-black"
+                style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+              >
+                {selectedHouse.name} AUCTIONS
+              </h1>
+            </div>
+            <span
+              className="text-[11px] uppercase tracking-widest text-black/40"
+              style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+            >
+              {auctions.length} TOTAL
+            </span>
+          </div>
 
         {fetchError && (
           <div className="mb-4 rounded-[4px] border border-[#ff0004]/30 bg-[#ff0004]/5 px-4 py-3 text-[12px] text-[#ff0004]">
@@ -181,7 +395,7 @@ export function AuctionsListView({ auctions, fetchError, sellerName }: Props) {
               className="mb-6 text-[12px] text-black/40"
               style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
             >
-              Create your first auction to get started.
+              Create your first auction for this house.
             </p>
             <button
               type="button"
@@ -253,9 +467,10 @@ export function AuctionsListView({ auctions, fetchError, sellerName }: Props) {
           </div>
         )}
       </div>
+      )}
 
       {/* Create modal */}
-      {showCreate && (
+      {selectedHouse && showCreate && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           onClick={() => !submitting && setShowCreate(false)}

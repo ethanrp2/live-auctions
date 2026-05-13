@@ -4,14 +4,21 @@ import { createProxyClient } from "@/lib/supabase/proxy";
 import { getTenantBySlug } from "@/lib/tenant";
 import { createServerClient } from "@supabase/ssr";
 import { getSellerRedirectPathForUser } from "@/lib/seller-redirect";
+import { isRecoverableSessionAuthError } from "@/lib/supabase/auth-helpers";
 
 const PROTECTED_PATHS = ["/account", "/console"];
-const AUTH_PATHS = ["/login", "/signup"];
+const AUTH_PATHS = ["/signup"];
 
 export async function proxy(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const hostname = host.split(":")[0];
   const baseDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost";
+  const { pathname } = request.nextUrl;
+  const isProtected = PROTECTED_PATHS.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`)
+  );
+  const isAuthPath = AUTH_PATHS.some((p) => pathname === p);
+  const isLegacyLoginPath = pathname === "/login";
 
   // Extract subdomain
   let subdomain: string | null = null;
@@ -21,15 +28,33 @@ export async function proxy(request: NextRequest) {
 
   // No subdomain or www → platform page
   if (!subdomain || subdomain === "www") {
-    const { supabase, response } = createProxyClient(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    if (isLegacyLoginPath) {
+      const homeUrl = request.nextUrl.clone();
+      homeUrl.pathname = "/";
+      return NextResponse.redirect(homeUrl);
+    }
 
-    const { pathname } = request.nextUrl;
+    if (!isProtected && !isAuthPath) {
+      return NextResponse.next();
+    }
+
+    const { supabase, response, clearAuthCookies } = createProxyClient(request);
+    let user = null;
+
+    try {
+      const {
+        data: { user: resolvedUser },
+      } = await supabase.auth.getUser();
+      user = resolvedUser;
+    } catch (error) {
+      if (!isRecoverableSessionAuthError(error)) {
+        console.warn("Failed to resolve auth user in proxy", error);
+      }
+      clearAuthCookies();
+    }
 
     // Redirect logged-in users away from auth pages
-    if (user && AUTH_PATHS.some((p) => pathname === p)) {
+    if (user && isAuthPath) {
       const homeUrl = request.nextUrl.clone();
       const sellerRedirect = await getSellerRedirectPathForUser({
         supabase,
@@ -39,13 +64,9 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(homeUrl);
     }
 
-    const isProtected = PROTECTED_PATHS.some(
-      (p) => pathname === p || pathname.startsWith(`${p}/`)
-    );
     if (isProtected && !user) {
       const loginUrl = request.nextUrl.clone();
-      loginUrl.pathname = "/login";
-      loginUrl.searchParams.set("redirect", pathname);
+      loginUrl.pathname = "/";
       return NextResponse.redirect(loginUrl);
     }
 
@@ -75,35 +96,46 @@ export async function proxy(request: NextRequest) {
   }
 
   // Create proxy client with tenant headers injected into the request
-  const { supabase, response } = createProxyClient(request, {
+  const { supabase, response, clearAuthCookies } = createProxyClient(request, {
     "x-tenant-id": tenant.id,
     "x-tenant-slug": tenant.slug,
     "x-tenant-name": tenant.name,
   });
 
-  // Refresh auth session (updates cookies on response if needed)
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
-
-  // Redirect logged-in users away from auth pages
-  if (user && AUTH_PATHS.some((p) => pathname === p)) {
+  if (isLegacyLoginPath) {
     const homeUrl = request.nextUrl.clone();
     homeUrl.pathname = "/";
     return NextResponse.redirect(homeUrl);
   }
 
-  // Check protected routes
-  const isProtected = PROTECTED_PATHS.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`)
-  );
+  if (!isProtected && !isAuthPath) {
+    return response;
+  }
+
+  let user = null;
+
+  try {
+    const {
+      data: { user: resolvedUser },
+    } = await supabase.auth.getUser();
+    user = resolvedUser;
+  } catch (error) {
+    if (!isRecoverableSessionAuthError(error)) {
+      console.warn("Failed to resolve tenant auth user in proxy", error);
+    }
+    clearAuthCookies();
+  }
+
+  // Redirect logged-in users away from auth pages
+  if (user && isAuthPath) {
+    const homeUrl = request.nextUrl.clone();
+    homeUrl.pathname = "/";
+    return NextResponse.redirect(homeUrl);
+  }
 
   if (isProtected && !user) {
     const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/login";
-    loginUrl.searchParams.set("redirect", pathname);
+    loginUrl.pathname = "/";
     return NextResponse.redirect(loginUrl);
   }
 
