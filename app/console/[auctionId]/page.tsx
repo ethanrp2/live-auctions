@@ -36,7 +36,7 @@ export default async function ConsolePage({
   const { data: auction } = await supabase
     .from("auctions")
     .select(
-      "id, title, status, basta_sale_id, current_lot_id, went_live_at, bid_increment_table, closing_time_countdown_ms"
+      "id, title, status, basta_sale_id, current_lot_id, went_live_at, ended_at, bid_increment_table, closing_time_countdown_ms"
     )
     .eq("id", auctionId)
     .eq("tenant_id", profile.tenant_id)
@@ -81,6 +81,7 @@ export default async function ConsolePage({
         bastaSaleId: auction.basta_sale_id as string | null,
         currentLotId: auction.current_lot_id as string | null,
         wentLiveAt: auction.went_live_at as string | null,
+        endedAt: auction.ended_at as string | null,
         bidIncrementTable: auction.bid_increment_table,
         closingTimeCountdownMs: auction.closing_time_countdown_ms as number | null,
       }}

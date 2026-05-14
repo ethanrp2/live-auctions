@@ -324,35 +324,43 @@ function LotEditor({
         const token = await getToken();
         if (!token) throw new Error("Not authenticated");
         // Get a signed upload URL
-        const res = await fetch(
-          `${BACKEND_URL}/api/seller/auctions/${auctionId}/images/signed-upload-url`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              filename: file.name,
-              content_type: file.type,
-              lot_id: lot?.id ?? "new",
-            }),
-          }
-        );
+        const uploadPath = lot
+          ? `/api/seller/lots/${lot.id}/images/signed-upload`
+          : `/api/seller/auctions/${auctionId}/images/signed-upload-url`;
+        const res = await fetch(`${BACKEND_URL}${uploadPath}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type,
+          }),
+        });
         if (!res.ok) {
-          throw new Error("Failed to get upload URL");
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(data.error ?? "Failed to get upload URL");
         }
-        const { signedUrl, publicUrl } = (await res.json()) as {
-          signedUrl: string;
+        const { path, token: uploadToken, publicUrl } = (await res.json()) as {
+          path: string;
+          token: string;
           publicUrl: string;
         };
-        // Upload directly to the signed URL
-        const uploadRes = await fetch(signedUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type },
-          body: file,
-        });
-        if (!uploadRes.ok) throw new Error("Upload failed");
+        const supabase = createClient();
+        const { error: uploadError } = await supabase.storage
+          .from("lot-images")
+          .uploadToSignedUrl(path, uploadToken, file);
+        if (uploadError) throw new Error(uploadError.message || "Upload failed");
+        if (lot) {
+          const confirm = await apiRequest("POST", `/api/seller/lots/${lot.id}/images`, {
+            path,
+            publicUrl,
+          });
+          if (!confirm.ok) {
+            throw new Error(confirm.error ?? "Failed to save uploaded image");
+          }
+        }
         uploadedUrls.push(publicUrl);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Image upload failed");

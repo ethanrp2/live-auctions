@@ -44,14 +44,14 @@ async function verifyLotOwnership(
   lotId: string,
   auctionId: string,
   tenantId: string
-): Promise<{ id: string; title: string } | null> {
+): Promise<{ id: string; title: string; sort_order: number | null } | null> {
   const { data, error } = await supabaseAdmin
     .from("lots")
-    .select("id, title")
+    .select("id, title, sort_order")
     .eq("id", lotId)
     .eq("auction_id", auctionId)
     .eq("tenant_id", tenantId)
-    .maybeSingle<{ id: string; title: string }>();
+    .maybeSingle<{ id: string; title: string; sort_order: number | null }>();
 
   if (error || !data) {
     return null;
@@ -135,6 +135,21 @@ export async function consoleSellerRoutes(fastify: FastifyInstance) {
       if (resetLotsError) {
         request.log.error({ err: resetLotsError }, "Failed to reset lot statuses");
         return reply.status(500).send({ error: "Failed to reset lot statuses" });
+      }
+
+      if (lot.sort_order !== null) {
+        const { error: skippedLotsError } = await supabaseAdmin
+          .from("lots")
+          .update({ live_status: "passed" })
+          .eq("auction_id", auction.id)
+          .eq("tenant_id", seller.tenantId)
+          .lt("sort_order", lot.sort_order)
+          .in("live_status", ["upcoming", "live", "closing"]);
+
+        if (skippedLotsError) {
+          request.log.error({ err: skippedLotsError }, "Failed to pass skipped lots");
+          return reply.status(500).send({ error: "Failed to pass skipped lots" });
+        }
       }
 
       const { error: lotError } = await supabaseAdmin
@@ -306,11 +321,12 @@ export async function consoleSellerRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: "Auction not found" });
       }
 
+      const endedAt = new Date().toISOString();
       const { error } = await supabaseAdmin
         .from("auctions")
         .update({
           status: "ended",
-          ended_at: new Date().toISOString(),
+          ended_at: endedAt,
         })
         .eq("id", auction.id)
         .eq("tenant_id", seller.tenantId);
@@ -320,7 +336,151 @@ export async function consoleSellerRoutes(fastify: FastifyInstance) {
         return reply.status(500).send({ error: "Failed to end auction" });
       }
 
-      return reply.send({ ok: true });
+      const { data: auctionMeta, error: metaError } = await supabaseAdmin
+        .from("auctions")
+        .select("current_lot_id")
+        .eq("id", auction.id)
+        .eq("tenant_id", seller.tenantId)
+        .single<{ current_lot_id: string | null }>();
+
+      if (metaError) {
+        request.log.error({ err: metaError }, "Failed to load auction close state");
+        return reply.status(500).send({ error: "Failed to finalize auction state" });
+      }
+
+      let currentSortOrder: number | null = null;
+
+      if (auctionMeta.current_lot_id) {
+        const currentLot = await verifyLotOwnership(
+          auctionMeta.current_lot_id,
+          auction.id,
+          seller.tenantId
+        );
+        currentSortOrder = currentLot?.sort_order ?? null;
+
+        if (currentSortOrder !== null) {
+          const { error: skippedLotsError } = await supabaseAdmin
+            .from("lots")
+            .update({ live_status: "passed" })
+            .eq("auction_id", auction.id)
+            .eq("tenant_id", seller.tenantId)
+            .lt("sort_order", currentSortOrder)
+            .in("live_status", ["upcoming", "live", "closing"]);
+
+          if (skippedLotsError) {
+            request.log.error({ err: skippedLotsError }, "Failed to pass skipped lots");
+            return reply.status(500).send({ error: "Failed to pass skipped lots" });
+          }
+        }
+      }
+
+      let closeLotsQuery = supabaseAdmin
+        .from("lots")
+        .update({ live_status: "closed" })
+        .eq("auction_id", auction.id)
+        .eq("tenant_id", seller.tenantId)
+        .in("live_status", ["upcoming", "live", "closing"]);
+
+      if (currentSortOrder !== null) {
+        closeLotsQuery = closeLotsQuery.gte("sort_order", currentSortOrder);
+      }
+
+      const { error: lotsError } = await closeLotsQuery;
+
+      if (lotsError) {
+        request.log.error({ err: lotsError }, "Failed to close remaining lots");
+        return reply.status(500).send({ error: "Failed to close remaining lots" });
+      }
+
+      return reply.send({ ok: true, endedAt });
+    }
+  );
+
+  // POST /api/auctions/:auctionId/restart
+  fastify.post<{ Params: { auctionId: string } }>(
+    "/api/auctions/:auctionId/restart",
+    {
+      schema: {
+        params: auctionParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const seller = await requireSeller(request, reply);
+      if (!seller) {
+        return;
+      }
+
+      const auction = await requireAuctionOwnership(
+        request.params.auctionId,
+        seller.tenantId
+      );
+
+      if (!auction) {
+        return reply.status(404).send({ error: "Auction not found" });
+      }
+
+      const { data: auctionMeta, error: metaError } = await supabaseAdmin
+        .from("auctions")
+        .select("current_lot_id")
+        .eq("id", auction.id)
+        .eq("tenant_id", seller.tenantId)
+        .single<{ current_lot_id: string | null }>();
+
+      if (metaError) {
+        request.log.error({ err: metaError }, "Failed to load auction restart state");
+        return reply.status(500).send({ error: "Failed to restart auction" });
+      }
+
+      const currentLotId = auctionMeta.current_lot_id;
+      if (currentLotId) {
+        const lot = await verifyLotOwnership(currentLotId, auction.id, seller.tenantId);
+        if (!lot) {
+          return reply.status(404).send({ error: "Current lot not found" });
+        }
+      }
+
+      const wentLiveAt = new Date().toISOString();
+      const { error } = await supabaseAdmin
+        .from("auctions")
+        .update({
+          status: "live",
+          went_live_at: wentLiveAt,
+          ended_at: null,
+        })
+        .eq("id", auction.id)
+        .eq("tenant_id", seller.tenantId);
+
+      if (error) {
+        request.log.error({ err: error }, "Failed to restart auction");
+        return reply.status(500).send({ error: "Failed to restart auction" });
+      }
+
+      if (currentLotId) {
+        const { error: resetLotsError } = await supabaseAdmin
+          .from("lots")
+          .update({ live_status: "upcoming" })
+          .eq("auction_id", auction.id)
+          .eq("tenant_id", seller.tenantId)
+          .in("live_status", ["upcoming", "live", "closing", "closed"]);
+
+        if (resetLotsError) {
+          request.log.error({ err: resetLotsError }, "Failed to reset lot statuses");
+          return reply.status(500).send({ error: "Failed to reset lot statuses" });
+        }
+
+        const { error: lotError } = await supabaseAdmin
+          .from("lots")
+          .update({ live_status: "live" })
+          .eq("id", currentLotId)
+          .eq("tenant_id", seller.tenantId);
+
+        if (lotError) {
+          request.log.error({ err: lotError }, "Failed to reopen current lot");
+          return reply.status(500).send({ error: "Failed to reopen current lot" });
+        }
+      }
+
+      return reply.send({ ok: true, currentLotId, wentLiveAt });
     }
   );
 

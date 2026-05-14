@@ -71,6 +71,113 @@ const auctionParamSchema = {
   },
 } as const;
 
+function isMissingStorefrontColumn(error: { code?: string } | null): boolean {
+  return error?.code === "42703" || error?.code === "PGRST204";
+}
+
+function getFallbackStorefrontAuctionId(
+  brandColors: Record<string, unknown> | null
+): string | null {
+  const value = brandColors?.storefrontAuctionId;
+  return typeof value === "string" ? value : null;
+}
+
+async function getTenantStorefrontAuctionId(
+  tenantId: string
+): Promise<{ storefrontAuctionId: string | null; error: unknown | null }> {
+  const { data, error } = await supabaseAdmin
+    .from("tenants")
+    .select("storefront_auction_id, brand_colors")
+    .eq("id", tenantId)
+    .single<{
+      storefront_auction_id: string | null;
+      brand_colors: Record<string, unknown> | null;
+    }>();
+
+  if (!error) {
+    return {
+      storefrontAuctionId:
+        data.storefront_auction_id ??
+        getFallbackStorefrontAuctionId(data.brand_colors),
+      error: null,
+    };
+  }
+
+  if (!isMissingStorefrontColumn(error)) {
+    return { storefrontAuctionId: null, error };
+  }
+
+  const fallback = await supabaseAdmin
+    .from("tenants")
+    .select("brand_colors")
+    .eq("id", tenantId)
+    .single<{ brand_colors: Record<string, unknown> | null }>();
+
+  if (fallback.error) {
+    return { storefrontAuctionId: null, error: fallback.error };
+  }
+
+  return {
+    storefrontAuctionId: getFallbackStorefrontAuctionId(
+      fallback.data.brand_colors
+    ),
+    error: null,
+  };
+}
+
+async function setTenantStorefrontAuctionId(
+  tenantId: string,
+  auctionId: string
+): Promise<{ storefrontAuctionId: string | null; error: unknown | null }> {
+  const { data, error } = await supabaseAdmin
+    .from("tenants")
+    .update({ storefront_auction_id: auctionId })
+    .eq("id", tenantId)
+    .select("storefront_auction_id")
+    .single<{ storefront_auction_id: string | null }>();
+
+  if (!error) {
+    return { storefrontAuctionId: data.storefront_auction_id, error: null };
+  }
+
+  if (!isMissingStorefrontColumn(error)) {
+    return { storefrontAuctionId: null, error };
+  }
+
+  const existing = await supabaseAdmin
+    .from("tenants")
+    .select("brand_colors")
+    .eq("id", tenantId)
+    .single<{ brand_colors: Record<string, unknown> | null }>();
+
+  if (existing.error) {
+    return { storefrontAuctionId: null, error: existing.error };
+  }
+
+  const nextBrandColors = {
+    ...(existing.data.brand_colors ?? {}),
+    storefrontAuctionId: auctionId,
+  };
+
+  const fallback = await supabaseAdmin
+    .from("tenants")
+    .update({ brand_colors: nextBrandColors })
+    .eq("id", tenantId)
+    .select("brand_colors")
+    .single<{ brand_colors: Record<string, unknown> | null }>();
+
+  if (fallback.error) {
+    return { storefrontAuctionId: null, error: fallback.error };
+  }
+
+  return {
+    storefrontAuctionId: getFallbackStorefrontAuctionId(
+      fallback.data.brand_colors
+    ),
+    error: null,
+  };
+}
+
 export async function auctionSellerRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: { title: string; description?: string; scheduled_date: string } }>(
     "/auctions",
@@ -125,7 +232,20 @@ export async function auctionSellerRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ error: "Failed to list auctions" });
     }
 
-    return reply.send({ auctions: data ?? [] });
+    const selection = await getTenantStorefrontAuctionId(seller.tenantId);
+
+    if (selection.error) {
+      request.log.error(
+        { err: selection.error },
+        "Failed to load storefront auction selection"
+      );
+      return reply.status(500).send({ error: "Failed to list auctions" });
+    }
+
+    return reply.send({
+      auctions: data ?? [],
+      storefrontAuctionId: selection.storefrontAuctionId,
+    });
   });
 
   fastify.get<{ Params: { auctionId: string } }>(
@@ -267,6 +387,52 @@ export async function auctionSellerRoutes(fastify: FastifyInstance) {
       }
 
       return reply.status(204).send();
+    }
+  );
+
+  fastify.post<{ Params: { auctionId: string } }>(
+    "/auctions/:auctionId/storefront",
+    {
+      schema: {
+        params: auctionParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const seller = await requireSeller(request, reply);
+      if (!seller) {
+        return;
+      }
+
+      const auction = await requireAuctionOwnership(
+        request.params.auctionId,
+        seller.tenantId
+      );
+
+      if (!auction) {
+        return reply.status(404).send({ error: "Auction not found" });
+      }
+
+      const selection = await setTenantStorefrontAuctionId(
+        seller.tenantId,
+        auction.id
+      );
+
+      if (
+        selection.error ||
+        selection.storefrontAuctionId !== auction.id
+      ) {
+        request.log.error(
+          { err: selection.error },
+          "Failed to set storefront auction"
+        );
+        return reply
+          .status(500)
+          .send({ error: "Failed to set storefront auction" });
+      }
+
+      return reply.send({
+        storefrontAuctionId: selection.storefrontAuctionId,
+      });
     }
   );
 }

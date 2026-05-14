@@ -92,6 +92,54 @@ interface LotRow {
   sold_at: string | null;
 }
 
+function isMissingStorefrontColumn(error: { code?: string } | null): boolean {
+  return error?.code === "42703" || error?.code === "PGRST204";
+}
+
+function getFallbackStorefrontAuctionId(
+  brandColors: Record<string, unknown> | null
+): string | null {
+  const value = brandColors?.storefrontAuctionId;
+  return typeof value === "string" ? value : null;
+}
+
+async function getSelectedStorefrontAuctionId(
+  tenantId: string
+): Promise<string | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tenants")
+    .select("storefront_auction_id, brand_colors")
+    .eq("id", tenantId)
+    .maybeSingle<{
+      storefront_auction_id: string | null;
+      brand_colors: Record<string, unknown> | null;
+    }>();
+
+  if (!error) {
+    return (
+      data?.storefront_auction_id ??
+      getFallbackStorefrontAuctionId(data?.brand_colors ?? null)
+    );
+  }
+
+  if (!isMissingStorefrontColumn(error)) {
+    return null;
+  }
+
+  const fallback = await supabase
+    .from("tenants")
+    .select("brand_colors")
+    .eq("id", tenantId)
+    .maybeSingle<{ brand_colors: Record<string, unknown> | null }>();
+
+  if (fallback.error) {
+    return null;
+  }
+
+  return getFallbackStorefrontAuctionId(fallback.data?.brand_colors ?? null);
+}
+
 // All money values in cents (see docs/memory/architecture/money-units.md).
 const MOCK_AUCTION: StorefrontAuction = {
   id: "mock-auction",
@@ -366,6 +414,19 @@ function getMockLotDetail(lotId: string): StorefrontLotDetail | null {
 
 async function pickStorefrontAuctionRow(tenantId: string): Promise<AuctionRow | null> {
   const supabase = await createClient();
+
+  const selectedAuctionId = await getSelectedStorefrontAuctionId(tenantId);
+
+  if (selectedAuctionId) {
+    const { data: selectedAuction } = await supabase
+      .from("auctions")
+      .select("id, title, description, scheduled_date, status, current_lot_id, went_live_at, ended_at")
+      .eq("tenant_id", tenantId)
+      .eq("id", selectedAuctionId)
+      .maybeSingle<AuctionRow>();
+
+    if (selectedAuction) return selectedAuction;
+  }
 
   const { data: liveAuction } = await supabase
     .from("auctions")

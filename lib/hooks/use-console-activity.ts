@@ -14,6 +14,7 @@
  *   saleActivity     — full Map<itemId, SaleUpdatePayload> (all lots)
  *   bids             — BidFeedRow[] newest-first for the whole auction
  *   questions        — QuestionRow[] not yet dismissed, newest-first
+ *   viewerCount      — authenticated buyer live-room presences
  *   isConnected      — true once both Basta WS and Supabase Realtime are live
  */
 
@@ -69,6 +70,7 @@ export interface UseConsoleActivityResult {
   saleActivity: Map<string, SaleUpdatePayload>;
   bids: BidFeedRow[];
   questions: QuestionRow[];
+  viewerCount: number;
   isConnected: boolean;
 }
 
@@ -436,6 +438,54 @@ export function useConsoleActivity(
     };
   }, [auctionId]);
 
+  // ── Supabase Presence: authenticated buyers currently in the live room ──
+  const [viewerCount, setViewerCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!auctionId) {
+      queueMicrotask(() => {
+        if (!cancelled) setViewerCount(0);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const supabase = createClient();
+    const presenceChannel = supabase.channel(`live:presence:auction:${auctionId}`, {
+      config: { presence: { key: "seller-console" } },
+    });
+
+    presenceChannel
+      .on("presence", { event: "sync" }, () => {
+        if (cancelled) return;
+        const state = presenceChannel.presenceState<{
+          user_id?: string;
+          role?: string;
+        }>();
+        const buyerIds = new Set<string>();
+
+        for (const presences of Object.values(state)) {
+          for (const presence of presences) {
+            if (presence.role === "buyer" && presence.user_id) {
+              buyerIds.add(presence.user_id);
+            }
+          }
+        }
+
+        setViewerCount(buyerIds.size);
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      setViewerCount(0);
+      void supabase.removeChannel(presenceChannel);
+    };
+  }, [auctionId]);
+
   const isConnected = bastaConnected || supabaseConnected;
 
   return {
@@ -444,6 +494,7 @@ export function useConsoleActivity(
     saleActivity,
     bids,
     questions,
+    viewerCount,
     isConnected,
   };
 }

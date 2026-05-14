@@ -14,9 +14,10 @@ const SMS_ENABLED = process.env.NEXT_PUBLIC_SMS_ENABLED === "true";
 interface StorefrontHomeProps {
   tenant: Tenant;
   user: User | null;
+  forcePublic: boolean;
 }
 
-export async function StorefrontHome({ tenant, user }: StorefrontHomeProps) {
+export async function StorefrontHome({ tenant, user, forcePublic }: StorefrontHomeProps) {
   const { auction } = await getStorefrontAuction(tenant.id);
   const primary = tenant.brand_colors?.primary ?? "#000000";
   const { display: fontDisplay, mono: fontMono } = resolveFontVars(tenant);
@@ -38,7 +39,7 @@ export async function StorefrontHome({ tenant, user }: StorefrontHomeProps) {
         } as React.CSSProperties
       }
     >
-      <SellerSessionRedirect tenantId={tenant.id} />
+      <SellerSessionRedirect tenantId={tenant.id} forcePublic={forcePublic} />
       <AuctionHero tenant={tenant} auction={auction} />
       <StorefrontSignInButton
         user={user}

@@ -6,14 +6,15 @@ import { useUser } from "@/lib/hooks/use-user";
 
 interface SellerSessionRedirectProps {
   tenantId: string;
+  forcePublic: boolean;
 }
 
-export function SellerSessionRedirect({ tenantId }: SellerSessionRedirectProps) {
+export function SellerSessionRedirect({ tenantId, forcePublic }: SellerSessionRedirectProps) {
   const supabase = useMemo(() => createClient(), []);
   const { user, isLoading } = useUser();
 
   useEffect(() => {
-    if (isLoading || !user) return;
+    if (forcePublic || isLoading || !user) return;
 
     let cancelled = false;
     void (async () => {
@@ -32,7 +33,7 @@ export function SellerSessionRedirect({ tenantId }: SellerSessionRedirectProps) 
     return () => {
       cancelled = true;
     };
-  }, [isLoading, supabase, tenantId, user]);
+  }, [forcePublic, isLoading, supabase, tenantId, user]);
 
   return null;
 }

@@ -7,6 +7,8 @@ import {
   type SellerHouseSummary,
 } from "./view";
 
+export const dynamic = "force-dynamic";
+
 interface BackendAuctionRow {
   id: string;
   title: string;
@@ -71,13 +73,15 @@ export default async function SellerAuctionsPage({
         sellerName={profile.display_name ?? "Seller"}
         houses={[]}
         selectedHouseSlug={null}
+        storefrontAuctionId={null}
+        requestHost={host}
       />
     );
   }
 
   const tenantQuery = supabase
     .from("tenants")
-    .select("id, slug, name, description, logo_url, brand_colors")
+    .select("id, slug, name, description, logo_url, hero_image_url, brand_colors")
     .eq("id", profile.tenant_id);
 
   const { data: tenant } = await (tenantSlug
@@ -89,6 +93,7 @@ export default async function SellerAuctionsPage({
       name: string;
       description: string | null;
       logo_url: string | null;
+      hero_image_url: string | null;
       brand_colors: Record<string, string> | null;
     }>();
 
@@ -109,6 +114,13 @@ export default async function SellerAuctionsPage({
   let summaryAuctionCount = 0;
   let summaryActiveAuctionCount = 0;
   let summaryLotCount = 0;
+  const { data: storefrontSelection } = await supabase
+    .from("tenants")
+    .select("storefront_auction_id")
+    .eq("id", tenant.id)
+    .maybeSingle<{ storefront_auction_id: string | null }>();
+  let storefrontAuctionId =
+    storefrontSelection?.storefront_auction_id ?? null;
 
   if (tenantSlug && accessToken) {
     try {
@@ -123,8 +135,12 @@ export default async function SellerAuctionsPage({
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         fetchError = data.error ?? `Failed to load auctions (HTTP ${res.status})`;
       } else {
-        const json = (await res.json()) as { auctions: BackendAuctionRow[] };
+        const json = (await res.json()) as {
+          auctions: BackendAuctionRow[];
+          storefrontAuctionId?: string | null;
+        };
         const rows = json.auctions ?? [];
+        storefrontAuctionId = json.storefrontAuctionId ?? storefrontAuctionId;
 
         // Fetch lot counts for each auction in parallel.
         const counts = await Promise.all(
@@ -189,6 +205,7 @@ export default async function SellerAuctionsPage({
     name: tenant.name,
     description: tenant.description,
     logoUrl: tenant.logo_url,
+    heroImageUrl: tenant.hero_image_url,
     primaryColor: tenant.brand_colors?.primary ?? "#000000",
     auctionCount: summaryAuctionCount,
     activeAuctionCount: summaryActiveAuctionCount,
@@ -202,6 +219,8 @@ export default async function SellerAuctionsPage({
       sellerName={profile.display_name ?? "Seller"}
       houses={[house]}
       selectedHouseSlug={tenantSlug === tenant.slug ? tenant.slug : null}
+      storefrontAuctionId={storefrontAuctionId}
+      requestHost={host}
     />
   );
 }

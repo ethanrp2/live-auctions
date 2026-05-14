@@ -113,6 +113,7 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] `auctions.bid_increment_table` + `closing_time_countdown_ms` (`step15`)
 - [x] `lots.live_status` expanded to include `closing`/`closed` (`step16`)
 - [x] `sms_subscribers.tenant_id` added (`step17`)
+- [x] `tenants.storefront_auction_id` selects the auction displayed on the house page (`step18`)
 
 ### Step 3: Authentication & Basta Token Bridge — DONE
 - [x] Supabase Auth (email/password + magic links)
@@ -134,6 +135,8 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] All pages responsive (web + mobile)
 - [x] Tenant storefront now redirects logged-in house sellers into seller console/CMS instead of buyer storefront
 - [x] Storefront home + lot detail now render upcoming/live/ended auction states with sold/passed/unsold outcomes and winner/final-price copy for post-auction lots
+- [x] Seller console can choose which auction appears on the tenant storefront
+- [x] Seller-facing storefront links can open the public house homepage without redirecting sellers into the CMS
 
 ### Step 5: Seller Lot CMS — DONE
 - [x] Root `/seller/auctions` house overview; tenant `/seller/auctions` auction list; `/seller/auctions/[id]` editor
@@ -142,6 +145,10 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] Image upload UI via signed-URL endpoint
 - [x] Up/down arrow reorder (uses `PATCH /api/seller/auctions/:id/lots/reorder`)
 - [x] Publish button → `POST /api/seller/auctions/:id/publish`
+- [x] Tenant seller auctions header includes centered BASA logo link back to the house storefront home page
+- [x] Tenant seller auctions view routes `← HOUSES` back to the root-domain seller houses dashboard
+- [x] Tenant seller auctions view includes a house-branding modal for logo, accent color, and storefront hero image updates
+- [x] Seller house cards use absolute tenant storefront URLs so `OPEN STOREFRONT →` lands on the correct subdomain
 
 ### Step 6: Live Auction (Buyer-Facing) — DONE
 - [x] Route `/auctions/[auctionId]/live`
@@ -173,6 +180,8 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] Live bid feed (Supabase Realtime on `bids`)
 - [x] Browser smoke test against a live OPEN Basta sale: start lot, SELL, PASS, next-lot advance
 - [x] Console top bar includes a previous-page back control for seller navigation
+- [x] Console end-auction action freezes elapsed time, closes active lots, and toggles to restart
+- [x] Console buyer watcher count uses Supabase Presence from authenticated live-room buyers
 
 ### Step 8: Payments (Stripe) — DONE
 - [x] `backend/src/lib/stripe.ts` — Stripe SDK initializer
@@ -195,6 +204,8 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] `backend/src/routes/livekit-token.ts` — `POST /api/livekit-token`
 - [x] `components/console/livekit-publisher.tsx` — GO LIVE → ON AIR with mute toggle
 - [x] `components/live/livekit-receiver.tsx` — iOS tap-to-unmute, hidden audio element
+- [x] LiveKit audio controls hardened: seller mute/unmute uses track publication state; buyer sound on/off pre-unlocks browser playback and handles seller mute state
+- [x] Buyer audio subscribe tokens support public listeners; seller publish tokens still require seller auth
 - [ ] **PENDING ENV VARS**: `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
 
 ### Step 11: Shipping — RECORD-KEEPING ONLY (MVP)

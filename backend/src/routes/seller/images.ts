@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { requireSeller } from "../../lib/auth.js";
+import { requireAuctionOwnership, requireSeller } from "../../lib/auth.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { config } from "../../config.js";
 
@@ -71,6 +71,14 @@ const lotParamSchema = {
   },
 } as const;
 
+const auctionParamSchema = {
+  type: "object",
+  required: ["auctionId"],
+  properties: {
+    auctionId: { type: "string", format: "uuid" },
+  },
+} as const;
+
 const signedUploadBodySchema = {
   type: "object",
   required: ["filename", "contentType"],
@@ -101,6 +109,68 @@ const deleteBodySchema = {
 } as const;
 
 export async function sellerImageRoutes(fastify: FastifyInstance) {
+  fastify.post<{ Params: { auctionId: string }; Body: { filename: string; contentType?: string; content_type?: string } }>(
+    "/auctions/:auctionId/images/signed-upload-url",
+    {
+      schema: {
+        params: auctionParamSchema,
+        body: {
+          type: "object",
+          required: ["filename"],
+          additionalProperties: true,
+          properties: {
+            filename: { type: "string", minLength: 1, maxLength: 255 },
+            contentType: { type: "string", minLength: 1, maxLength: 100 },
+            content_type: { type: "string", minLength: 1, maxLength: 100 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const seller = await requireSeller(request, reply);
+      if (!seller) {
+        return;
+      }
+
+      const contentType = request.body.contentType ?? request.body.content_type;
+      if (!contentType || !allowedMimeTypes.has(contentType)) {
+        return reply.status(422).send({ error: "Unsupported content type" });
+      }
+
+      const auction = await requireAuctionOwnership(
+        request.params.auctionId,
+        seller.tenantId
+      );
+      if (!auction) {
+        return reply.status(404).send({ error: "Auction not found" });
+      }
+      if (auction.status !== "draft") {
+        return reply.status(409).send({ error: "Images can only be changed on draft auctions" });
+      }
+
+      const safeFilename = sanitizeFilename(request.body.filename);
+      const objectPath = `${seller.tenantId}/${auction.id}/pending/${crypto.randomUUID()}-${safeFilename}`;
+      const publicUrl = getCanonicalPublicUrl(objectPath);
+
+      const { data, error } = await supabaseAdmin.storage
+        .from(bucketName)
+        .createSignedUploadUrl(objectPath, { upsert: false });
+
+      if (error || !data) {
+        request.log.error({ err: error }, "Failed to create signed upload URL");
+        return reply.status(500).send({ error: "Failed to create signed upload URL" });
+      }
+
+      return reply.send({
+        bucket: bucketName,
+        path: objectPath,
+        token: data.token,
+        publicUrl,
+        expiresIn: config.signedUploadExpiresInSeconds,
+      });
+    }
+  );
+
   fastify.post<{ Params: { lotId: string }; Body: { filename: string; contentType: string } }>(
     "/lots/:lotId/images/signed-upload",
     {
@@ -251,8 +321,12 @@ export async function sellerImageRoutes(fastify: FastifyInstance) {
         return reply.status(422).send({ error: "Invalid public URL" });
       }
 
-      const expectedPrefix = `${seller.tenantId}/${lot.id}/`;
-      if (!objectPath.startsWith(expectedPrefix)) {
+      const expectedLotPrefix = `${seller.tenantId}/${lot.id}/`;
+      const expectedPendingPrefix = `${seller.tenantId}/${lot.auction_id}/pending/`;
+      if (
+        !objectPath.startsWith(expectedLotPrefix) &&
+        !objectPath.startsWith(expectedPendingPrefix)
+      ) {
         return reply.status(403).send({ error: "Image does not belong to seller lot" });
       }
 
