@@ -65,6 +65,19 @@ function isAlreadyPublishedError(error: unknown): boolean {
   return msg.includes("already") && msg.includes("publish");
 }
 
+function getBastaItemWindow(
+  auctionStart: Date,
+  index: number
+): { openDate: Date; closingDate: Date } {
+  const now = Date.now();
+  const openDate = new Date(now - 60_000);
+  const closeAnchor = Math.max(auctionStart.getTime(), now);
+  return {
+    openDate,
+    closingDate: new Date(closeAnchor + (index + 1) * config.bastaLotDurationMs),
+  };
+}
+
 async function acquirePublishLock(
   auctionId: string,
   lockOwner: string
@@ -212,10 +225,7 @@ export async function sellerPublishRoutes(fastify: FastifyInstance) {
             continue;
           }
 
-          const openDate = new Date(
-            auctionStart.getTime() + index * config.bastaLotDurationMs
-          );
-          const closingDate = new Date(openDate.getTime() + config.bastaLotDurationMs);
+          const { openDate, closingDate } = getBastaItemWindow(auctionStart, index);
 
           try {
             const input = mapLotToCreateItemInput(lot, saleId, openDate, closingDate);

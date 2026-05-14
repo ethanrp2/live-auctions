@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
+import { isSupabaseAuthStorageCookie } from "./auth-helpers";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
@@ -27,6 +28,24 @@ export function createProxyClient(
 
   let supabaseResponse = buildResponse();
 
+  const clearAuthCookies = () => {
+    const authCookieNames = request.cookies
+      .getAll()
+      .map(({ name }) => name)
+      .filter(isSupabaseAuthStorageCookie);
+
+    authCookieNames.forEach((name) => request.cookies.delete(name));
+
+    supabaseResponse = buildResponse();
+
+    authCookieNames.forEach((name) =>
+      supabaseResponse.cookies.set(name, "", {
+        maxAge: 0,
+        ...(cookieDomain ? { domain: cookieDomain } : {}),
+      })
+    );
+  };
+
   const supabase = createServerClient(supabaseUrl!, supabaseKey!, {
     cookies: {
       getAll() {
@@ -49,6 +68,7 @@ export function createProxyClient(
 
   return {
     supabase,
+    clearAuthCookies,
     get response() {
       return supabaseResponse;
     },

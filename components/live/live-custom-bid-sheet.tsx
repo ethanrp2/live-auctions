@@ -43,6 +43,15 @@ export function LiveCustomBidSheet({
     setState({ status: "idle" });
   }, [isOpen, minNextBidCents, startingBidCents]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const placeholderCents = minNextBidCents ?? startingBidCents;
@@ -138,21 +147,28 @@ export function LiveCustomBidSheet({
       aria-modal="true"
     >
       <div
-        className="flex w-full max-w-xl flex-col gap-4 rounded-t-lg bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        className="flex w-full max-w-xl flex-col gap-4 rounded-t-[4px] bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
         onClick={(e) => e.stopPropagation()}
         style={{ fontFamily: "var(--storefront-font-mono)" }}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-sm uppercase tracking-[-0.02em] text-black">
-            CUSTOM BID
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e] transition-colors hover:text-black"
-          >
-            CANCEL
-          </button>
+          <div>
+            <h2 className="text-sm uppercase tracking-[-0.02em] text-black">
+              CUSTOM BID
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-widest text-[#9c9c9c]">
+              [ESC]
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e] hover:text-black"
+            >
+              CANCEL
+            </button>
+          </div>
         </div>
 
         {minimum > 0 && (

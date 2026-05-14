@@ -6,6 +6,8 @@ import { getHeroColors, getBadgeTextColor } from "@/lib/color";
 import { AuctionHero } from "./auction-hero";
 import { LotGrid } from "./lot-grid";
 import { SmsSubscribe } from "./sms-subscribe";
+import { StorefrontSignInButton } from "./storefront-sign-in-button";
+import { SellerSessionRedirect } from "./seller-session-redirect";
 
 const SMS_ENABLED = process.env.NEXT_PUBLIC_SMS_ENABLED === "true";
 
@@ -36,7 +38,13 @@ export async function StorefrontHome({ tenant, user }: StorefrontHomeProps) {
         } as React.CSSProperties
       }
     >
+      <SellerSessionRedirect tenantId={tenant.id} />
       <AuctionHero tenant={tenant} auction={auction} />
+      <StorefrontSignInButton
+        user={user}
+        tenantId={tenant.id}
+        tenantSlug={tenant.slug}
+      />
 
       <main className="flex-1 lg:overflow-y-auto">
         <LotGrid auction={auction} lots={auction.lots} />

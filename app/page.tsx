@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSellerTenantRedirectPath } from "@/lib/storefront-data";
 import { getTenantBySlug } from "@/lib/tenant";
+import { getSellerRedirectPathForUser } from "@/lib/seller-redirect";
 import { StorefrontHome } from "@/components/storefront/storefront-home";
 import { PlatformHome } from "@/components/platform-home";
 
@@ -28,6 +29,16 @@ export default async function Home() {
         }
       }
       return <StorefrontHome tenant={tenant} user={user} />;
+    }
+  }
+
+  if (user) {
+    const sellerRedirectPath = await getSellerRedirectPathForUser({
+      supabase,
+      userId: user.id,
+    });
+    if (sellerRedirectPath) {
+      redirect(sellerRedirectPath);
     }
   }
 

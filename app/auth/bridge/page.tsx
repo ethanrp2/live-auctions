@@ -55,7 +55,7 @@ export default function AuthBridgePage() {
             session = result.data.session;
           }
         } else {
-          await supabase.auth.signOut({ scope: "global" });
+          await supabase.auth.signOut({ scope: "local" });
           session = null;
         }
       } catch (error) {

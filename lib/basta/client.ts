@@ -33,6 +33,14 @@ function isClosedStateMessage(message: string): boolean {
   );
 }
 
+function isNotOpenStateMessage(message: string): boolean {
+  return (
+    message.includes("ITEM_NOT_OPEN") ||
+    message.includes("item in status: ITEM_NOT_OPEN") ||
+    message.includes("not allowed for item in status")
+  );
+}
+
 export async function bidOnItem(params: {
   supabaseAccessToken: string;
   saleId: string;
@@ -91,6 +99,9 @@ export async function bidOnItem(params: {
 export function bidErrorMessage(code: string, fallback: string): string {
   if (isClosedStateMessage(fallback)) {
     return "This lot is no longer accepting bids.";
+  }
+  if (isNotOpenStateMessage(fallback)) {
+    return "This lot is not open in Basta yet. Republish the auction so live lots are open for bidding.";
   }
 
   switch (code) {

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { requestRootSession } from "@/lib/supabase/session-bridge";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
@@ -92,6 +93,25 @@ function sellerHouseUrl(slug: string): string {
   return `${protocol}//${slug}.${rootHost}${portSuffix}`;
 }
 
+function sellerManagerUrl(slug: string): string {
+  return `${sellerHouseUrl(slug)}/seller/auctions`;
+}
+
+function withLocalSessionHash(url: string, session: {
+  access_token: string;
+  refresh_token: string;
+} | null): string {
+  if (typeof window === "undefined" || window.location.hostname !== "localhost" || !session) {
+    return url;
+  }
+  return `${url}#la_session=${btoa(
+    JSON.stringify({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    })
+  )}`;
+}
+
 function SellerHouseLanding({
   houses,
   fetchError,
@@ -99,7 +119,19 @@ function SellerHouseLanding({
   houses: SellerHouseSummary[];
   fetchError: string | null;
 }) {
+  const supabase = useMemo(() => createClient(), []);
   const primaryHouse = houses[0] ?? null;
+
+  async function handleManageHouse(
+    event: React.MouseEvent<HTMLAnchorElement>,
+    slug: string
+  ) {
+    event.preventDefault();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    window.location.assign(withLocalSessionHash(sellerManagerUrl(slug), session));
+  }
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -207,13 +239,14 @@ function SellerHouseLanding({
                   </div>
 
                   <div className="mt-8 flex flex-col gap-3">
-                    <Link
-                      href={`/seller/auctions?house=${encodeURIComponent(house.slug)}`}
+                    <a
+                      href={sellerManagerUrl(house.slug)}
+                      onClick={(event) => handleManageHouse(event, house.slug)}
                       className="flex h-[50px] items-center justify-center rounded-[4px] bg-black px-5 text-[12px] uppercase tracking-widest text-white transition-opacity hover:opacity-90"
                       style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
                     >
                       MANAGE HOUSE →
-                    </Link>
+                    </a>
                     <a
                       href={sellerHouseUrl(house.slug)}
                       className="flex h-[50px] items-center justify-center rounded-[4px] border border-[#e5e5e5] px-5 text-[12px] uppercase tracking-widest text-black/60 transition-colors hover:border-black hover:text-black"
@@ -253,9 +286,11 @@ export function AuctionsListView({
 
   async function handleLogout() {
     setLoggingOut(true);
-    await supabase.auth.signOut();
-    router.replace("/");
-    router.refresh();
+    await Promise.allSettled([
+      supabase.auth.signOut({ scope: "global" }),
+      requestRootSession("clear"),
+    ]);
+    window.location.replace("/");
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -315,7 +350,7 @@ export function AuctionsListView({
             className="text-[11px] uppercase tracking-widest text-white/50"
             style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
           >
-            SELLER CMS
+            SELLER
           </span>
           <span className="text-white/20">|</span>
           <span

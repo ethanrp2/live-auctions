@@ -240,20 +240,30 @@ export function AccountPanel({ isOpen, onClose, user }: AccountPanelProps) {
       <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-[460px] flex-col bg-white shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#f3f3f3] px-6 py-5">
-          <h2
-            className="text-xl font-normal text-black"
-            style={{ fontFamily: "var(--storefront-font-display)" }}
-          >
-            Account
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-[#5e5e5e] transition-colors hover:text-black"
-            aria-label="Close"
-          >
-            <CloseIcon />
-          </button>
+          <div>
+            <h2
+              className="text-xl font-normal text-black"
+              style={{ fontFamily: "var(--storefront-font-display)" }}
+            >
+              Account
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className="text-[10px] uppercase tracking-widest text-[#9c9c9c]"
+              style={{ fontFamily: "var(--storefront-font-mono)" }}
+            >
+              [ESC]
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-[#5e5e5e] hover:text-black"
+              aria-label="Close"
+            >
+              <CloseIcon />
+            </button>
+          </div>
         </div>
 
         {/* Profile */}

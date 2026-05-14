@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useConsoleActivity } from "@/lib/hooks/use-console-activity";
 import type { QuestionRow } from "@/lib/hooks/use-console-activity";
@@ -281,6 +282,7 @@ function XIcon({ className }: { className?: string }) {
 // ── ConsoleView ────────────────────────────────────────────────────────────
 
 export function ConsoleView({ auction, lots, sellerName }: Props) {
+  const router = useRouter();
   const [auctionStatus, setAuctionStatus] = useState<string | null>(
     auction.status
   );
@@ -465,6 +467,10 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
     setIsActing(false);
   }
 
+  function handleBack() {
+    router.push(`/seller/auctions/${auction.id}`);
+  }
+
   async function handleDismissQuestion(questionId: string) {
     const result = await apiPost(
       `/api/auctions/${auction.id}/questions/${questionId}/dismiss`,
@@ -502,6 +508,15 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
       <div className="flex h-[50px] shrink-0 items-center justify-between bg-black px-5">
         {/* Left */}
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="h-[30px] rounded-[4px] border border-white/20 bg-white/[0.04] px-2.5 text-[11px] uppercase tracking-widest text-white/60 transition-colors hover:border-white/50 hover:bg-white/10 hover:text-white"
+            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+            aria-label="Go back to previous page"
+          >
+            ← BACK
+          </button>
           <span
             className="text-[11px] uppercase tracking-widest text-white/50"
             style={{ fontFamily: "var(--font-ibm-plex-mono)" }}

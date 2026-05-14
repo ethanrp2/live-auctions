@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -19,6 +20,13 @@ interface BackendAuctionRow {
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost";
+
+function tenantSellerUrl(slug: string, host: string): string {
+  const protocol = ROOT_DOMAIN === "localhost" ? "http" : "https";
+  const port = host.includes(":") ? `:${host.split(":")[1]}` : "";
+  return `${protocol}://${slug}.${ROOT_DOMAIN}${port}/seller/auctions`;
+}
 
 export default async function SellerAuctionsPage({
   searchParams,
@@ -26,6 +34,15 @@ export default async function SellerAuctionsPage({
   searchParams: Promise<{ house?: string | string[] }>;
 }) {
   const params = await searchParams;
+  const headersList = await headers();
+  const tenantSlug = headersList.get("x-tenant-slug");
+  const host = headersList.get("host") ?? ROOT_DOMAIN;
+  const requestedHouse = Array.isArray(params.house) ? params.house[0] : params.house;
+
+  if (!tenantSlug && requestedHouse) {
+    redirect(tenantSellerUrl(requestedHouse, host));
+  }
+
   const supabase = await createClient();
 
   const {
@@ -58,11 +75,15 @@ export default async function SellerAuctionsPage({
     );
   }
 
-  const { data: tenant } = await supabase
+  const tenantQuery = supabase
     .from("tenants")
     .select("id, slug, name, description, logo_url, brand_colors")
-    .eq("id", profile.tenant_id)
-    .maybeSingle<{
+    .eq("id", profile.tenant_id);
+
+  const { data: tenant } = await (tenantSlug
+    ? tenantQuery.eq("slug", tenantSlug)
+    : tenantQuery
+  ).maybeSingle<{
       id: string;
       slug: string;
       name: string;
@@ -72,15 +93,12 @@ export default async function SellerAuctionsPage({
     }>();
 
   if (!tenant) {
-    return (
-      <AuctionsListView
-        auctions={[]}
-        fetchError="The house assigned to this seller account could not be found."
-        sellerName={profile.display_name ?? "Seller"}
-        houses={[]}
-        selectedHouseSlug={null}
-      />
-    );
+    const { data: assignedTenant } = await supabase
+      .from("tenants")
+      .select("slug")
+      .eq("id", profile.tenant_id)
+      .maybeSingle<{ slug: string }>();
+    redirect(assignedTenant?.slug ? tenantSellerUrl(assignedTenant.slug, host) : "/");
   }
 
   const { data: sessionData } = await supabase.auth.getSession();
@@ -88,8 +106,11 @@ export default async function SellerAuctionsPage({
 
   let auctions: AuctionListItem[] = [];
   let fetchError: string | null = null;
+  let summaryAuctionCount = 0;
+  let summaryActiveAuctionCount = 0;
+  let summaryLotCount = 0;
 
-  if (accessToken) {
+  if (tenantSlug && accessToken) {
     try {
       const res = await fetch(`${BACKEND_URL}/api/seller/auctions`, {
         headers: {
@@ -125,19 +146,43 @@ export default async function SellerAuctionsPage({
           bastaSaleId: row.basta_sale_id,
           lotCount: counts[idx] ?? 0,
         }));
+        summaryAuctionCount = auctions.length;
+        summaryActiveAuctionCount = auctions.filter((auction) => {
+          const status = (auction.status ?? "draft").toLowerCase();
+          return status === "draft" || status === "published" || status === "scheduled" || status === "live";
+        }).length;
+        summaryLotCount = auctions.reduce((sum, auction) => sum + auction.lotCount, 0);
       }
     } catch (err) {
-      fetchError = err instanceof Error ? err.message : "Failed to load auctions";
+      fetchError =
+        err instanceof Error && err.message !== "fetch failed"
+          ? err.message
+          : "Seller API unavailable";
     }
-  } else {
+  } else if (tenantSlug) {
     fetchError = "Not authenticated";
+  } else {
+    const [{ count: auctionCount }, { count: activeCount }, { count: lotCount }] =
+      await Promise.all([
+        supabase
+          .from("auctions")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", profile.tenant_id),
+        supabase
+          .from("auctions")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", profile.tenant_id)
+          .in("status", ["draft", "published", "scheduled", "live"]),
+        supabase
+          .from("lots")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", profile.tenant_id),
+      ]);
+    summaryAuctionCount = auctionCount ?? 0;
+    summaryActiveAuctionCount = activeCount ?? 0;
+    summaryLotCount = lotCount ?? 0;
   }
 
-  const totalLots = auctions.reduce((sum, auction) => sum + auction.lotCount, 0);
-  const activeAuctions = auctions.filter((auction) => {
-    const status = (auction.status ?? "draft").toLowerCase();
-    return status === "draft" || status === "published" || status === "scheduled" || status === "live";
-  }).length;
   const house: SellerHouseSummary = {
     id: tenant.id,
     slug: tenant.slug,
@@ -145,13 +190,10 @@ export default async function SellerAuctionsPage({
     description: tenant.description,
     logoUrl: tenant.logo_url,
     primaryColor: tenant.brand_colors?.primary ?? "#000000",
-    auctionCount: auctions.length,
-    activeAuctionCount: activeAuctions,
-    lotCount: totalLots,
+    auctionCount: summaryAuctionCount,
+    activeAuctionCount: summaryActiveAuctionCount,
+    lotCount: summaryLotCount,
   };
-
-  const requestedHouse = Array.isArray(params.house) ? params.house[0] : params.house;
-  const selectedHouseSlug = requestedHouse === tenant.slug ? tenant.slug : null;
 
   return (
     <AuctionsListView
@@ -159,7 +201,7 @@ export default async function SellerAuctionsPage({
       fetchError={fetchError}
       sellerName={profile.display_name ?? "Seller"}
       houses={[house]}
-      selectedHouseSlug={selectedHouseSlug}
+      selectedHouseSlug={tenantSlug === tenant.slug ? tenant.slug : null}
     />
   );
 }

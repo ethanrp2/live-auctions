@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoneyCents } from "@/lib/format";
-import { getSellerRedirectPathForUser } from "@/lib/seller-redirect";
 import type { User } from "@supabase/supabase-js";
 
 interface PlatformHomeProps {
@@ -28,6 +27,10 @@ function houseUrl(slug: string): string {
   }
   const port = window.location.port ? `:${window.location.port}` : "";
   return `${window.location.protocol}//${slug}.${ROOT_DOMAIN}${port}`;
+}
+
+function sellerManagerUrl(slug: string): string {
+  return `${houseUrl(slug)}/seller/auctions`;
 }
 
 function withLocalSessionHash(url: string, session: {
@@ -299,7 +302,13 @@ function LoggedInDashboard({ user }: { user: User }) {
   );
 }
 
-function LoginForm({ onSuccess }: { onSuccess: () => void }) {
+function LoginForm({
+  onSuccess,
+  onAuthRoutingChange,
+}: {
+  onSuccess: () => void;
+  onAuthRoutingChange: (isRouting: boolean) => void;
+}) {
   const supabase = useMemo(() => createClient(), []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -308,38 +317,71 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
   const [loading, setLoading] = useState(false);
   const [magicSent, setMagicSent] = useState(false);
   const [authMethod, setAuthMethod] = useState<"password" | "magic">("password");
+  const [accountRole, setAccountRole] = useState<"buyer" | "seller">("buyer");
 
   const handlePasswordAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    onAuthRoutingChange(true);
     setLoading(true);
     try {
       if (mode === "signup") {
+        if (accountRole === "seller") {
+          throw new Error("Seller accounts are assigned from a house.");
+        }
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         setError("Check your email to confirm your account.");
+        onAuthRoutingChange(false);
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        const sellerRedirect = data.user?.id
-          ? await getSellerRedirectPathForUser({
-              supabase,
-              userId: data.user.id,
-            })
-          : null;
+        const userId = data.user?.id;
+        if (!userId) throw new Error("Sign in did not return a user.");
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("is_seller, tenant_id")
+          .eq("id", userId)
+          .maybeSingle<{ is_seller: boolean | null; tenant_id: string | null }>();
+        const isSeller = Boolean(profile?.is_seller && profile.tenant_id);
+
+        if (accountRole === "buyer" && isSeller) {
+          await supabase.auth.signOut({ scope: "local" });
+          throw new Error("Use Seller Sign In for this account.");
+        }
+
+        if (accountRole === "seller") {
+          if (!isSeller || !profile?.tenant_id) {
+            await supabase.auth.signOut({ scope: "local" });
+            throw new Error("Seller access required for this account.");
+          }
+
+          const { data: tenant } = await supabase
+            .from("tenants")
+            .select("slug")
+            .eq("id", profile.tenant_id)
+            .maybeSingle<{ slug: string }>();
+          if (!tenant?.slug) {
+            await supabase.auth.signOut({ scope: "local" });
+            throw new Error("Seller house could not be found.");
+          }
+
+          window.location.assign(withLocalSessionHash(sellerManagerUrl(tenant.slug), data.session));
+          return;
+        }
+
         const next = new URLSearchParams(window.location.search).get("next");
         if (next) {
           window.location.assign(withLocalSessionHash(next, data.session));
           return;
         }
-        if (sellerRedirect) {
-          window.location.assign(sellerRedirect);
-          return;
-        }
+        onAuthRoutingChange(false);
         onSuccess();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
+      onAuthRoutingChange(false);
     } finally {
       setLoading(false);
     }
@@ -367,7 +409,7 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     <div className="w-full max-w-[430px]">
       <div className="mb-9 border-b border-black/10 pb-7">
         <p className="mb-4 text-[10px] uppercase tracking-[0.28em] text-[#ff0004]">
-          Buyer Access
+          {accountRole === "buyer" ? "Buyer Access" : "Seller Access"}
         </p>
         <h1
           className="text-[56px] font-normal leading-[0.9] tracking-normal text-black"
@@ -379,8 +421,9 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
           className="mt-5 max-w-[33ch] text-[14px] leading-6 text-black/50"
           style={{ fontFamily: "var(--font-inter)" }}
         >
-          Sign in once to bid and review orders across every participating
-          house.
+          {accountRole === "buyer"
+            ? "Sign in once to bid and review orders across every participating house."
+            : "Sign in to manage your assigned auction house."}
         </p>
       </div>
 
@@ -405,6 +448,28 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
         </div>
       ) : (
         <>
+          <div className="mb-4 grid grid-cols-2 border border-black/10 bg-white">
+            {(["buyer", "seller"] as const).map((role) => (
+              <button
+                key={role}
+                type="button"
+                onClick={() => {
+                  setAccountRole(role);
+                  setMode("login");
+                  setError(null);
+                }}
+                className={`h-[44px] text-[11px] uppercase tracking-widest transition-colors ${
+                  accountRole === role
+                    ? "bg-black text-white"
+                    : "bg-white text-black/45 hover:text-black"
+                }`}
+                style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+              >
+                {role}
+              </button>
+            ))}
+          </div>
+
           <div className="mb-6 grid grid-cols-2 border border-black/10 bg-white">
             {(["password", "magic"] as const).map((m) => (
               <button
@@ -486,7 +551,7 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
             </button>
           </form>
 
-          {authMethod === "password" && (
+          {authMethod === "password" && accountRole === "buyer" && (
             <button
               type="button"
               onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(null); }}
@@ -504,16 +569,27 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
 
 export function PlatformHome({ user: initialUser }: PlatformHomeProps) {
   const [user, setUser] = useState<User | null>(initialUser);
+  const [authRouting, setAuthRouting] = useState(false);
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    void supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user ?? initialUser);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT" || !session) {
+        setUser(null);
+        return;
+      }
+
+      void supabase.auth.getUser().then(({ data }) => {
+        setUser(data.user ?? null);
+      });
     });
     return () => subscription.unsubscribe();
-  }, [supabase]);
+  }, [initialUser, supabase]);
 
-  if (user) {
+  if (user && !authRouting) {
     return <LoggedInDashboard user={user} />;
   }
 
@@ -560,7 +636,10 @@ export function PlatformHome({ user: initialUser }: PlatformHomeProps) {
         </div>
       </section>
       <main className="flex items-center justify-center px-5 py-10 sm:px-8 lg:py-16">
-        <LoginForm onSuccess={() => window.location.reload()} />
+        <LoginForm
+          onSuccess={() => window.location.reload()}
+          onAuthRoutingChange={setAuthRouting}
+        />
       </main>
     </div>
   );

@@ -1,12 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { isRecoverableSessionAuthError } from "@/lib/supabase/auth-helpers";
-import { requestRootSession } from "@/lib/supabase/session-bridge";
-
-const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost";
+import {
+  requestRootSession,
+  shouldUseLocalSessionBridge,
+} from "@/lib/supabase/session-bridge";
 
 function readFragmentSession() {
   if (typeof window === "undefined") return null;
@@ -50,20 +51,6 @@ function readFragmentSession() {
   }
 }
 
-function isTenantHost() {
-  if (typeof window === "undefined") return false;
-  const { hostname } = window.location;
-  return hostname !== ROOT_DOMAIN && hostname.endsWith(`.${ROOT_DOMAIN}`);
-}
-
-function sessionsMatch(a: Session | null, b: Session | null) {
-  return (
-    a?.access_token === b?.access_token &&
-    a?.refresh_token === b?.refresh_token &&
-    a?.expires_at === b?.expires_at
-  );
-}
-
 export interface AuthContextValue {
   user: User | null;
   session: Session | null;
@@ -82,26 +69,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const supabase = useMemo(() => createClient(), []);
+  const shouldSkipNextLocalBridgeSync = useRef(false);
 
   const clearLocalSession = useCallback(async () => {
     await supabase.auth.signOut({ scope: "local" });
   }, [supabase]);
 
+  const getAuthenticatedUser = useCallback(async () => {
+    const {
+      data: { user: authenticatedUser },
+    } = await supabase.auth.getUser();
+    return authenticatedUser;
+  }, [supabase]);
+
+  const getLocalSession = useCallback(async () => {
+    const {
+      data: { session: localSession },
+    } = await supabase.auth.getSession();
+    return localSession;
+  }, [supabase]);
+
   const syncFromPlatformRoot = useCallback(async () => {
-    if (!isTenantHost()) return null;
+    if (!shouldUseLocalSessionBridge()) return null;
 
     try {
       const rootSession = await requestRootSession("get");
       if (!rootSession?.access_token || !rootSession.refresh_token) {
         await clearLocalSession();
         return null;
-      }
-
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
-      if (sessionsMatch(currentSession, rootSession)) {
-        return currentSession;
       }
 
       const {
@@ -120,9 +115,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearLocalSession, supabase]);
 
-  const updateState = useCallback((s: Session | null) => {
+  const updateState = useCallback((s: Session | null, authenticatedUser: User | null) => {
     setSession(s);
-    setUser(s?.user ?? null);
+    setUser(authenticatedUser);
   }, []);
 
   useEffect(() => {
@@ -132,30 +127,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         let resolvedSession: Session | null = null;
 
         if (fragmentSession?.access_token && fragmentSession.refresh_token) {
+          shouldSkipNextLocalBridgeSync.current = shouldUseLocalSessionBridge();
           const result = await supabase.auth.setSession({
             access_token: fragmentSession.access_token,
             refresh_token: fragmentSession.refresh_token,
           });
           resolvedSession = result.data.session;
-          if (isTenantHost()) {
-            void requestRootSession("set", resolvedSession);
+        } else if (shouldUseLocalSessionBridge()) {
+          resolvedSession = await getLocalSession();
+          if (!resolvedSession) {
+            resolvedSession = await syncFromPlatformRoot();
           }
-        } else if (isTenantHost()) {
-          resolvedSession = await syncFromPlatformRoot();
         } else {
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-          resolvedSession = session;
+          resolvedSession = await getLocalSession();
         }
 
-        updateState(resolvedSession);
+        const authenticatedUser = resolvedSession
+          ? await getAuthenticatedUser()
+          : null;
+
+        updateState(resolvedSession, authenticatedUser);
       } catch (error) {
         if (!isRecoverableSessionAuthError(error)) {
           console.warn("Failed to restore auth session", error);
         }
         await clearLocalSession();
-        updateState(null);
+        updateState(null, null);
       } finally {
         setIsLoading(false);
       }
@@ -164,14 +161,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      updateState(session);
-      if (isTenantHost() && (event === "SIGNED_IN" || event === "SIGNED_OUT")) {
-        void requestRootSession(session ? "set" : "clear", session);
+      void (async () => {
+        const authenticatedUser =
+          event === "SIGNED_OUT" || !session ? null : await getAuthenticatedUser();
+        updateState(session, authenticatedUser);
+      })();
+
+      if (!shouldUseLocalSessionBridge()) return;
+
+      if (event === "SIGNED_IN" && shouldSkipNextLocalBridgeSync.current) {
+        shouldSkipNextLocalBridgeSync.current = false;
+        return;
+      }
+
+      if (event === "SIGNED_OUT") {
+        void requestRootSession("clear");
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [clearLocalSession, supabase, syncFromPlatformRoot, updateState]);
+  }, [
+    clearLocalSession,
+    getAuthenticatedUser,
+    getLocalSession,
+    supabase,
+    syncFromPlatformRoot,
+    updateState,
+  ]);
 
   const value = useMemo(
     () => ({ user, session, isLoading }),

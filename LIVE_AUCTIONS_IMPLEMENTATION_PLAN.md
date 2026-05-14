@@ -2,7 +2,7 @@
 
 > Implementation steps, architecture decisions, and progress tracker.
 > For product context and user flows, see `LIVE_AUCTIONS_PLATFORM_OVERVIEW.md`.
-> Last updated: 2026-05-06
+> Last updated: 2026-05-14
 
 ---
 
@@ -119,6 +119,9 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] `POST /api/basta-token` — validates Supabase session, calls `createBidderToken`
 - [x] Auth callback subdomain hop (`/auth/callback?next=<tenant_url>`)
 - [x] `lib/basta/client.ts` — Client API wrapper with `INVALID_TOKEN` retry
+- [x] Auth bridge no longer replays stale root-domain refresh tokens; proxy skips public-route auth lookups and clears bad session cookies on recoverable auth errors
+- [x] Root login uses explicit buyer/seller mode so seller sign-in routes directly to the seller's house subdomain manager
+- [x] Localhost auth bridge only mirrors root sessions when needed, avoiding duplicate refresh-token replay during root→tenant seller redirects
 
 ### Step 4: House Storefront (Buyer-Facing Pages) — DONE
 - [x] Auction preview / house home page with hero, lot grid, SMS subscribe widget
@@ -127,12 +130,13 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] Live auctions redirect tenant lot-detail URLs into `/auctions/[auctionId]/live`
 - [x] Open lot-detail pages realtime-redirect into the live room when seller starts
 - [x] Account modal with profile, orders, payment method, shipping address
+- [x] Tenant storefront sign-in modal now supports buyer-first buyer/seller toggle and routes house sellers into the seller CMS
 - [x] All pages responsive (web + mobile)
 - [x] Tenant storefront now redirects logged-in house sellers into seller console/CMS instead of buyer storefront
 - [x] Storefront home + lot detail now render upcoming/live/ended auction states with sold/passed/unsold outcomes and winner/final-price copy for post-auction lots
 
 ### Step 5: Seller Lot CMS — DONE
-- [x] `/seller/auctions` (list) + `/seller/auctions/[id]` (editor)
+- [x] Root `/seller/auctions` house overview; tenant `/seller/auctions` auction list; `/seller/auctions/[id]` editor
 - [x] Auction create/edit form (title, description, scheduled date)
 - [x] Lot create/edit form with all metadata fields
 - [x] Image upload UI via signed-URL endpoint
@@ -144,6 +148,7 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] Basta WS subscriptions (`saleUpdates`) via `lib/basta/ws.ts` + `use-sale-activity.ts`
 - [x] Supabase Realtime bid feed via `use-bid-feed.ts` with display-name hydration
 - [x] NORMAL `bidOnItem` wired with token refresh retry
+- [x] Live bidding now recovers stale future-dated Basta items by recreating an open Basta sale and retrying once when Basta returns `ITEM_NOT_OPEN`
 - [x] Countdown timer (`use-countdown.ts`, 250ms tick)
 - [x] Nine components under `components/live/`
 - [x] `<AuthModal>` gating for unauthenticated users
@@ -160,12 +165,14 @@ All tenant-scoped tables have `tenant_id` column with RLS. Money = integer cents
 - [x] Backend: `POST /api/auctions/:auctionId/end` — end auction
 - [x] Backend: `GET /api/auctions/:auctionId/winners` — list winner info
 - [x] Backend: `POST /api/questions` — buyer Q&A with real-time broadcasting
+- [x] Buyer question sheet keeps hook order stable when opened/closed
 - [x] Route `app/console/[auctionId]/page.tsx` with `is_seller` guard
 - [x] `lib/hooks/use-console-activity.ts` — Basta WS + Supabase Realtime on bids + questions
 - [x] Full desktop console: 3-column layout with lot queue, lot media, seller controls
 - [x] Buyer questions feed with dismiss button
 - [x] Live bid feed (Supabase Realtime on `bids`)
 - [x] Browser smoke test against a live OPEN Basta sale: start lot, SELL, PASS, next-lot advance
+- [x] Console top bar includes a previous-page back control for seller navigation
 
 ### Step 8: Payments (Stripe) — DONE
 - [x] `backend/src/lib/stripe.ts` — Stripe SDK initializer

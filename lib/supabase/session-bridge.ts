@@ -14,8 +14,12 @@ function isTenantHost(): boolean {
   return hostname !== ROOT_DOMAIN && hostname.endsWith(`.${ROOT_DOMAIN}`);
 }
 
+export function shouldUseLocalSessionBridge(): boolean {
+  return ROOT_DOMAIN === "localhost" && isTenantHost();
+}
+
 function getRootOrigin(): string | null {
-  if (typeof window === "undefined" || !isTenantHost()) return null;
+  if (typeof window === "undefined" || !shouldUseLocalSessionBridge()) return null;
 
   const { protocol, port } = window.location;
   return `${protocol}//${ROOT_DOMAIN}${port ? `:${port}` : ""}`;

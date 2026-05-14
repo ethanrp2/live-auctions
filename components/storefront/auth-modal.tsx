@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { requestRootSession } from "@/lib/supabase/session-bridge";
 import { ModalOverlay } from "./modal-overlay";
 import { AccountPanel, type AccountPanelUser } from "./account-panel";
 
@@ -62,7 +63,6 @@ export function AuthModal({
   onClose,
   onComplete,
   tenantId,
-  tenantSlug,
 }: AuthModalProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -134,9 +134,8 @@ export function AuthModal({
           setError("This seller account is not assigned to this house.");
           return;
         }
-        window.location.assign(
-          `/seller/auctions${tenantSlug ? `?house=${encodeURIComponent(tenantSlug)}` : ""}`
-        );
+        await requestRootSession("set", data.session);
+        window.location.assign("/seller/auctions");
         return;
       }
 
@@ -148,6 +147,7 @@ export function AuthModal({
 
       setCurrentUser(data.user);
       setProfile(signedInProfile ?? null);
+      await requestRootSession("set", data.session);
       onComplete();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed.");

@@ -767,14 +767,21 @@ function LiveQuestionSheet({
   const [status, setStatus] = useState<"idle" | "submitting" | "sent">("idle");
   const [error, setError] = useState<string | null>(null);
 
-  if (!isOpen) return null;
-
-  function handleClose() {
+  const handleClose = useCallback(() => {
     setInput("");
     setStatus("idle");
     setError(null);
     onClose();
-  }
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") handleClose();
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [handleClose, isOpen]);
 
   const trimmed = input.trim();
   const canSubmit = isAuthenticated && trimmed.length >= 3 && status !== "submitting";
@@ -801,6 +808,8 @@ function LiveQuestionSheet({
     }
   }
 
+  if (!isOpen) return null;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
@@ -809,21 +818,28 @@ function LiveQuestionSheet({
       aria-modal="true"
     >
       <div
-        className="flex max-h-[88vh] w-full max-w-xl flex-col gap-4 overflow-y-auto rounded-[10px] bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl"
+        className="flex max-h-[88vh] w-full max-w-xl flex-col gap-4 overflow-y-auto rounded-[4px] bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
         onClick={(event) => event.stopPropagation()}
         style={{ fontFamily: "var(--storefront-font-mono)" }}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-sm uppercase tracking-[-0.02em] text-black">
-            Ask The Seller
-          </h2>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e] transition-colors hover:text-black"
-          >
-            Close
-          </button>
+          <div>
+            <h2 className="text-sm uppercase tracking-[-0.02em] text-black">
+              Ask The Seller
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-widest text-[#9c9c9c]">
+              [ESC]
+            </span>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="text-xs uppercase tracking-[-0.02em] text-[#5e5e5e] hover:text-black"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         <textarea
