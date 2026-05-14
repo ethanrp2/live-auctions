@@ -31,9 +31,15 @@ const HERO_ASSET = {
   ext: "jpg" as const,
 };
 
-// Logo is a vector SVG in Figma. MCP exports it as a tiny raster that looks
-// broken when upscaled, so logo_url stays null and the template renders "BASA"
-// as crisp text in the mono font instead.
+const LOGO_SVG = `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="45" height="12" viewBox="0 0 45 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="BASA">
+  <path d="M22.3139 10.0038C24.9282 7.90086 27.517 5.81215 30.1058 3.73056C31.7784 5.51326 31.7893 8.74773 29.575 10.6052C27.1534 12.6405 23.7901 11.9182 22.3139 10.0074V10.0038Z" fill="currentColor"/>
+  <path d="M0.00727194 11.9787V6.32811C0.167255 6.31743 0.29815 6.3032 0.43268 6.3032C1.69436 6.3032 2.95604 6.29608 4.22136 6.31031C5.83209 6.32811 7.09014 7.53436 7.14468 9.08577C7.19558 10.5767 5.9739 11.9004 4.38862 11.9644C2.94877 12.0214 1.50166 11.9751 0.0109079 11.9751L0.00727194 11.9787Z" fill="currentColor"/>
+  <path d="M0 5.65559V0.0584193C0.0254518 0.0370697 0.0472676 0.0014869 0.0727194 0.0014869C1.6071 0.0121617 3.14511 -0.0305376 4.67586 0.0548611C6.03207 0.129585 7.1265 1.44615 7.1265 2.82676C7.1265 4.27854 6.01753 5.56663 4.56314 5.6378C3.06512 5.71252 1.5562 5.65559 0 5.65559Z" fill="currentColor"/>
+  <path d="M31.5348 1.98701C28.9205 4.08995 26.3317 6.17866 23.7429 8.26025C22.0703 6.47755 22.0594 3.24308 24.2737 1.38566C26.6953 -0.649678 30.0586 0.0726525 31.5348 1.98345V1.98701Z" fill="currentColor"/>
+  <path d="M21.394 10.8044L15.3511 0.567253C15.0384 0.0370697 14.2566 0.0370697 13.9439 0.567253L7.90096 10.808C7.58827 11.3382 7.97732 12 8.6027 12H20.6814C21.3068 12 21.6958 11.3382 21.3831 10.808L21.394 10.8044ZM14.6493 9.77608C13.5876 9.77608 12.7259 8.93277 12.7259 7.89375C12.7259 6.85473 13.5876 6.01142 14.6493 6.01142C15.711 6.01142 16.5727 6.85473 16.5727 7.89375C16.5727 8.93277 15.711 9.77608 14.6493 9.77608Z" fill="currentColor"/>
+  <path d="M44.9006 10.8044L38.8576 0.563695C38.5449 0.0335114 37.7632 0.0335114 37.4505 0.563695L31.4075 10.8044C31.0948 11.3346 31.4839 11.9964 32.1092 11.9964H44.1879C44.8133 11.9964 45.2024 11.3346 44.8897 10.8044H44.9006ZM38.1595 9.77608C37.0978 9.77608 36.2361 8.93277 36.2361 7.89375C36.2361 6.85473 37.0978 6.01142 38.1595 6.01142C39.2212 6.01142 40.0829 6.85473 40.0829 7.89375C40.0829 8.93277 39.2212 9.77608 38.1595 9.77608Z" fill="currentColor"/>
+</svg>`;
 
 interface LotSeed {
   index: number;
@@ -267,6 +273,19 @@ async function uploadAsset(
   return data.publicUrl;
 }
 
+async function uploadSvgAsset(svg: string, destPath: string): Promise<string> {
+  const { error } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .upload(destPath, Buffer.from(svg, "utf8"), {
+      contentType: "image/svg+xml",
+      upsert: true,
+    });
+  if (error) throw error;
+
+  const { data } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(destPath);
+  return data.publicUrl;
+}
+
 function contentTypeFor(ext: "jpg" | "png"): string {
   return ext === "png" ? "image/png" : "image/jpeg";
 }
@@ -282,9 +301,28 @@ async function main() {
     .maybeSingle();
 
   let tenantId: string;
+  let existingTenantRow:
+    | {
+        id: string;
+        logo_url: string | null;
+        hero_image_url: string | null;
+        brand_colors: Record<string, string> | null;
+      }
+    | null = null;
 
   if (existingTenant) {
     tenantId = existingTenant.id;
+    const { data } = await supabaseAdmin
+      .from("tenants")
+      .select("id, logo_url, hero_image_url, brand_colors")
+      .eq("id", tenantId)
+      .maybeSingle<{
+        id: string;
+        logo_url: string | null;
+        hero_image_url: string | null;
+        brand_colors: Record<string, string> | null;
+      }>();
+    existingTenantRow = data ?? null;
     console.log(`✓ tenant exists (${tenantId})`);
   } else {
     const { data, error } = await supabaseAdmin
@@ -308,16 +346,19 @@ async function main() {
   await ensureBucket();
   console.log(`✓ bucket "${BUCKET}" ready`);
 
-  // 3. Upload hero (logo is rendered as text)
-  console.log("→ uploading hero image");
-  const heroUrl = await uploadAsset(
-    HERO_ASSET.url,
-    `${TENANT_SLUG}/hero.${HERO_ASSET.ext}`,
-    contentTypeFor(HERO_ASSET.ext)
-  );
-  const logoUrl = null;
+  // 3. Upload hero and logo assets when missing.
+  const heroUrl =
+    existingTenantRow?.hero_image_url ??
+    (await uploadAsset(
+      HERO_ASSET.url,
+      `${TENANT_SLUG}/hero.${HERO_ASSET.ext}`,
+      contentTypeFor(HERO_ASSET.ext)
+    ));
+  const logoUrl =
+    existingTenantRow?.logo_url ??
+    (await uploadSvgAsset(LOGO_SVG, `${TENANT_SLUG}/logo.svg`));
   console.log(`  hero: ${heroUrl}`);
-  console.log(`  logo: (text fallback — "BASA")`);
+  console.log(`  logo: ${logoUrl}`);
 
   // 4. Upload lot images in parallel
   console.log("→ uploading lot images");

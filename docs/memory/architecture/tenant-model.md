@@ -32,7 +32,7 @@ Pages read tenant context via `headers()` in server components. See `app/page.ts
 
 | Table | tenant_id column | Notes |
 |---|---|---|
-| `tenants` | (pk) | 3 rows today: `demo`, `unsoundrags`, `basa`. |
+| `tenants` | (pk) | `storefront_auction_id` optionally pins which auction appears on the house subdomain. |
 | `profiles` | nullable | NULL = buyer (cross-house); non-null = seller for that tenant. |
 | `auctions` | not null | |
 | `lots` | not null | |
@@ -66,4 +66,4 @@ Today there's no enforcement — a seed script could create a tenant with any sl
 
 ---
 
-_Last verified: 2026-04-21_
+_Last verified: 2026-05-14_

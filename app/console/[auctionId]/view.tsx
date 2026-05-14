@@ -19,6 +19,7 @@ export interface AuctionConsoleData {
   bastaSaleId: string | null;
   currentLotId: string | null;
   wentLiveAt: string | null;
+  endedAt: string | null;
   bidIncrementTable: unknown;
   closingTimeCountdownMs: number | null;
 }
@@ -84,6 +85,35 @@ function getLotStatusLabel(
   return "UPCOMING";
 }
 
+function getEffectiveLotStatus(
+  lot: LotConsoleData,
+  currentSortOrder: number | null,
+  isAuctionEnded: boolean
+): string | null {
+  if (isAuctionEnded) {
+    if (lot.liveStatus === "sold" || lot.liveStatus === "passed") {
+      return lot.liveStatus;
+    }
+    if (
+      currentSortOrder !== null &&
+      lot.sortOrder !== null &&
+      lot.sortOrder < currentSortOrder
+    ) {
+      return "passed";
+    }
+    return "closed";
+  }
+  if (
+    currentSortOrder !== null &&
+    lot.sortOrder !== null &&
+    lot.sortOrder < currentSortOrder &&
+    lot.liveStatus === "upcoming"
+  ) {
+    return "passed";
+  }
+  return lot.liveStatus;
+}
+
 function timeAgo(isoString: string): string {
   const diffMs = Date.now() - new Date(isoString).getTime();
   const secs = Math.floor(diffMs / 1000);
@@ -114,28 +144,47 @@ function avatarColor(str: string): string {
 
 // ── Elapsed timer ──────────────────────────────────────────────────────────
 
-function useElapsedTimer(wentLiveAt: string | null): string {
-  const [elapsed, setElapsed] = useState("00:00:00");
+function formatElapsedTime(startIso: string, endMs: number): string {
+  const diffMs = endMs - new Date(startIso).getTime();
+  const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function useElapsedTimer(
+  wentLiveAt: string | null,
+  endedAt: string | null
+): string {
+  const [elapsed, setElapsed] = useState(() => {
+    if (!wentLiveAt) return "00:00:00";
+    return formatElapsedTime(
+      wentLiveAt,
+      endedAt ? new Date(endedAt).getTime() : Date.now()
+    );
+  });
 
   useEffect(() => {
-    if (!wentLiveAt) return;
-    const start = new Date(wentLiveAt).getTime();
+    if (!wentLiveAt) {
+      setElapsed("00:00:00");
+      return;
+    }
 
+    if (endedAt) {
+      setElapsed(formatElapsedTime(wentLiveAt, new Date(endedAt).getTime()));
+      return;
+    }
+
+    const liveStartedAt = wentLiveAt;
     function tick() {
-      const diffMs = Date.now() - start;
-      const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
-      const h = Math.floor(totalSecs / 3600);
-      const m = Math.floor((totalSecs % 3600) / 60);
-      const s = totalSecs % 60;
-      setElapsed(
-        `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
-      );
+      setElapsed(formatElapsedTime(liveStartedAt, Date.now()));
     }
 
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [wentLiveAt]);
+  }, [wentLiveAt, endedAt]);
 
   return elapsed;
 }
@@ -184,7 +233,7 @@ async function getAccessToken(): Promise<string | null> {
 async function apiPost(
   path: string,
   body: Record<string, unknown>
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; data?: unknown }> {
   const token = await getAccessToken();
   if (!token) return { ok: false, error: "Not authenticated" };
   try {
@@ -196,11 +245,11 @@ async function apiPost(
       },
       body: JSON.stringify(body),
     });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
     if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: data.error ?? `HTTP ${res.status}` };
     }
-    return { ok: true };
+    return { ok: true, data };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Request failed" };
   }
@@ -242,18 +291,19 @@ function PulseDot() {
   );
 }
 
-function ChevronDownIcon({ className }: { className?: string }) {
+function ClockIcon({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 10 10"
+      viewBox="0 0 16 16"
       fill="none"
       className={className}
       aria-hidden="true"
     >
+      <circle cx="8" cy="8" r="5.75" stroke="currentColor" strokeWidth="1.5" />
       <path
-        d="M2.5 4l2.5 3 2.5-3"
+        d="M8 4.5V8l2.25 1.5"
         stroke="currentColor"
-        strokeWidth="1.25"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -286,6 +336,10 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   const [auctionStatus, setAuctionStatus] = useState<string | null>(
     auction.status
   );
+  const [wentLiveAt, setWentLiveAt] = useState<string | null>(
+    auction.wentLiveAt
+  );
+  const [endedAt, setEndedAt] = useState<string | null>(auction.endedAt);
   const [currentLotId, setCurrentLotId] = useState<string | null>(
     auction.currentLotId
   );
@@ -296,13 +350,35 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   const [isActing, setIsActing] = useState(false);
   const [selectedIncrement, setSelectedIncrement] = useState<number>(INCREMENT_OPTIONS[0]);
 
+  const isAuctionEnded =
+    endedAt !== null || auctionStatus === "ended" || auctionStatus === "closed";
+  const isAuctionLive = auctionStatus === "live" && !isAuctionEnded;
+  const isAuctionReady = !isAuctionLive && !isAuctionEnded;
+
+  const currentSortOrder = useMemo(
+    () =>
+      lots.find((lot) => lot.id === currentLotId)?.sortOrder ??
+      null,
+    [lots, currentLotId]
+  );
+
   const liveLots = useMemo(
     () =>
-      lots.map((lot) => ({
-        ...lot,
-        liveStatus: lotStatusOverrides[lot.id] ?? lot.liveStatus,
-      })),
-    [lots, lotStatusOverrides]
+      lots.map((lot) => {
+        const lotWithOverride = {
+          ...lot,
+          liveStatus: lotStatusOverrides[lot.id] ?? lot.liveStatus,
+        };
+        return {
+          ...lotWithOverride,
+          liveStatus: getEffectiveLotStatus(
+            lotWithOverride,
+            currentSortOrder,
+            isAuctionEnded
+          ),
+        };
+      }),
+    [lots, lotStatusOverrides, currentSortOrder, isAuctionEnded]
   );
 
   const currentLot = useMemo(
@@ -312,7 +388,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
 
   const currentBastaItemId = currentLot?.bastaItemId ?? null;
 
-  const { currentBidCents, countdownMs, saleActivity, bids, questions } =
+  const { currentBidCents, countdownMs, saleActivity, bids, questions, viewerCount } =
     useConsoleActivity(
       auction.bastaSaleId ?? null,
       auction.id,
@@ -320,8 +396,8 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
       currentLot?.id ?? null
     );
 
-  const elapsed = useElapsedTimer(auction.wentLiveAt);
-  const countdownDisplay = useCountdownDisplay(countdownMs);
+  const elapsed = useElapsedTimer(wentLiveAt, endedAt);
+  const countdownDisplay = useCountdownDisplay(isAuctionLive ? countdownMs : null);
 
   // Max bids on current lot
   const maxBidsOnLot = useMemo(() => {
@@ -378,9 +454,8 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
 
   const currentImages = currentLot?.images ?? [];
   const currentImage = currentImages[imageIndex] ?? null;
-  const isAuctionEnded =
-    auctionStatus === "ended" || auctionStatus === "closed";
   const currentLotIsTerminal = isSoldLot(currentLot?.liveStatus ?? null);
+  const controlsDisabled = isActing || !isAuctionLive;
 
   // ── Lot queue image carousel lots from saleActivity ────────────────────
   // For live status label, merge saleActivity statuses back if needed.
@@ -389,7 +464,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   // ── Actions ────────────────────────────────────────────────────────────
 
   async function handleSwitchLot(lotId: string) {
-    if (lotId === currentLotId || isActing || isAuctionEnded) return;
+    if (lotId === currentLotId || isActing || !isAuctionLive) return;
     setIsActing(true);
     setActionError(null);
     const result = await apiPatch(
@@ -398,6 +473,9 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
     );
     if (result.ok) {
       setCurrentLotId(lotId);
+      setAuctionStatus("live");
+      setEndedAt(null);
+      if (!wentLiveAt) setWentLiveAt(new Date().toISOString());
       setLotStatusOverrides((prev) => ({ ...prev, [lotId]: "live" }));
     } else {
       setActionError(result.error ?? "Failed to switch lot");
@@ -406,7 +484,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   }
 
   async function handleSell() {
-    if (!currentLot || isActing || isAuctionEnded) return;
+    if (!currentLot || isActing || !isAuctionLive) return;
     if (currentLotIsTerminal) return;
     if (!topBidder?.userId || currentBidCents == null) {
       setActionError("No bids on this lot yet.");
@@ -431,7 +509,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   }
 
   async function handlePass() {
-    if (!currentLot || isActing || isAuctionEnded || currentLotIsTerminal) return;
+    if (!currentLot || isActing || !isAuctionLive || currentLotIsTerminal) return;
     setIsActing(true);
     setActionError(null);
     const result = await apiPost(`/api/auctions/${auction.id}/pass`, {
@@ -449,21 +527,81 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   }
 
   async function handleNextLot() {
-    if (!nextLot || isActing || isAuctionEnded) return;
+    if (!nextLot || isActing || !isAuctionLive) return;
     await handleSwitchLot(nextLot.id);
   }
 
+  async function handleStartAuction() {
+    if (isActing || !isAuctionReady || !currentLot) return;
+    setIsActing(true);
+    setActionError(null);
+    const result = await apiPatch(
+      `/api/auctions/${auction.id}/current-lot`,
+      { lotId: currentLot.id }
+    );
+    if (!result.ok) {
+      setActionError(result.error ?? "Start auction failed");
+    } else {
+      setCurrentLotId(currentLot.id);
+      setAuctionStatus("live");
+      setEndedAt(null);
+      setWentLiveAt(new Date().toISOString());
+      setLotStatusOverrides((prev) => ({ ...prev, [currentLot.id]: "live" }));
+    }
+    setIsActing(false);
+  }
+
   async function handleEndAuction() {
-    if (isActing || isAuctionEnded) return;
+    if (isActing || !isAuctionLive) return;
     const confirmed = window.confirm(
-      "Are you sure you want to end the auction? This cannot be undone."
+      "End this auction? You can restart it from this console if needed."
     );
     if (!confirmed) return;
     setIsActing(true);
     setActionError(null);
     const result = await apiPost(`/api/auctions/${auction.id}/end`, {});
-    if (!result.ok) setActionError(result.error ?? "End auction failed");
-    else setAuctionStatus("ended");
+    if (!result.ok) {
+      setActionError(result.error ?? "End auction failed");
+    } else {
+      const data = result.data as { endedAt?: string };
+      setAuctionStatus("ended");
+      setEndedAt(data.endedAt ?? new Date().toISOString());
+      if (currentLot) {
+        setLotStatusOverrides((prev) => ({
+          ...prev,
+          [currentLot.id]: "closed",
+        }));
+      }
+    }
+    setIsActing(false);
+  }
+
+  async function handleRestartAuction() {
+    if (isActing || !isAuctionEnded) return;
+    const confirmed = window.confirm("Restart this auction and reopen the current lot?");
+    if (!confirmed) return;
+    setIsActing(true);
+    setActionError(null);
+    const result = await apiPost(`/api/auctions/${auction.id}/restart`, {});
+    if (!result.ok) {
+      setActionError(result.error ?? "Restart auction failed");
+    } else {
+      const data = result.data as {
+        currentLotId?: string | null;
+        wentLiveAt?: string;
+      };
+      const nextCurrentLotId = data.currentLotId ?? currentLotId;
+      setAuctionStatus("live");
+      setEndedAt(null);
+      setWentLiveAt(data.wentLiveAt ?? new Date().toISOString());
+      if (nextCurrentLotId) {
+        setCurrentLotId(nextCurrentLotId);
+        setLotStatusOverrides((prev) => ({
+          ...prev,
+          [nextCurrentLotId]: "live",
+        }));
+      }
+    }
     setIsActing(false);
   }
 
@@ -498,6 +636,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
   const isClosing = currentBastaItemId
     ? (saleActivity.get(currentBastaItemId)?.status === "CLOSING")
     : false;
+  const hasCountdown = isAuctionLive && countdownMs !== null;
 
   return (
     <div
@@ -534,20 +673,28 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
 
         {/* Center — LIVE + viewer count */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 rounded-[4px] bg-[#ff0004]/10 px-2.5 py-1">
-            <PulseDot />
+          <div
+            className={[
+              "flex items-center gap-1.5 rounded-[4px] px-2.5 py-1",
+              isAuctionEnded || isAuctionReady ? "bg-white/10" : "bg-[#ff0004]/10",
+            ].join(" ")}
+          >
+            {isAuctionLive && <PulseDot />}
             <span
-              className="text-[11px] font-semibold uppercase tracking-widest text-[#ff0004]"
+              className={[
+                "text-[11px] font-semibold uppercase tracking-widest",
+                isAuctionLive ? "text-[#ff0004]" : "text-white/60",
+              ].join(" ")}
               style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
             >
-              LIVE
+              {isAuctionEnded ? "ENDED" : isAuctionLive ? "LIVE" : "READY"}
             </span>
           </div>
           <span
             className="text-[11px] uppercase text-white/40"
             style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
           >
-            — WATCHING
+            {viewerCount} {viewerCount === 1 ? "BUYER" : "BUYERS"} WATCHING
           </span>
         </div>
 
@@ -562,12 +709,33 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
           </span>
           <button
             type="button"
-            onClick={handleEndAuction}
-            disabled={isActing || isAuctionEnded}
-            className="rounded-[4px] border border-white/30 px-3 py-1.5 text-[11px] uppercase tracking-widest text-white transition-colors hover:border-white hover:bg-white/10 disabled:opacity-50"
+            onClick={
+              isAuctionEnded
+                ? handleRestartAuction
+                : isAuctionLive
+                  ? handleEndAuction
+                  : handleStartAuction
+            }
+            disabled={isActing || (isAuctionReady && !currentLot)}
+            className={[
+              "rounded-[4px] border px-3 py-1.5 text-[11px] uppercase tracking-widest transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+              isAuctionEnded || isAuctionReady
+                ? "border-[#00ad37]/60 text-[#8be09e] hover:border-[#00ad37] hover:bg-[#00ad37]/10"
+                : "border-white/30 text-white hover:border-white hover:bg-white/10",
+            ].join(" ")}
             style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
           >
-            END AUCTION
+            {isActing
+              ? isAuctionEnded
+                ? "RESTARTING..."
+                : isAuctionReady
+                  ? "STARTING..."
+                : "ENDING..."
+              : isAuctionEnded
+                ? "RESTART AUCTION"
+                : isAuctionReady
+                  ? "START AUCTION"
+                : "END AUCTION"}
           </button>
         </div>
       </div>
@@ -604,6 +772,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
             {liveLots.map((lot, idx) => {
               const isActive = lot.id === currentLotId;
               const isNext =
+                isAuctionLive &&
                 !isActive &&
                 !isSoldLot(lot.liveStatus) &&
                 nextLot?.id === lot.id;
@@ -619,7 +788,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                   key={lot.id}
                   type="button"
                   onClick={() => handleSwitchLot(lot.id)}
-                  disabled={isActing || isAuctionEnded}
+                  disabled={controlsDisabled}
                   className={[
                     "flex w-full items-center gap-3 border-b border-[#f3f3f3] px-3 py-2.5 text-left transition-colors",
                     isActive
@@ -655,7 +824,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                       <span
                         className={[
                           "shrink-0 rounded-[3px] px-1.5 py-0.5 text-[9px] uppercase tracking-widest",
-                          isActive
+                          isActive && !soldStatus
                             ? "bg-[#ff0004] text-white"
                             : isNext
                             ? "bg-black text-white"
@@ -928,22 +1097,35 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
               </div>
 
               {/* Countdown pill */}
-              <div className="mt-2">
-                <div
-                  className={[
-                    "inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1.5",
-                    isClosing ? "bg-[#ff0004] text-white" : "bg-[#f3f3f3] text-black/60",
-                  ].join(" ")}
-                >
-                  <ChevronDownIcon className="h-3 w-3" />
-                  <span
-                    className="text-[13px] tabular-nums"
-                    style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+              {hasCountdown && (
+                <div className="mt-2">
+                  <div
+                    className={[
+                      "inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1.5",
+                      isAuctionEnded
+                        ? "bg-[#f3f3f3] text-black/30"
+                        : isClosing
+                          ? "bg-[#ff0004] text-white"
+                          : "bg-[#f3f3f3] text-black/60",
+                    ].join(" ")}
+                    title="Lot closing countdown"
                   >
-                    {countdownDisplay}
-                  </span>
+                    <ClockIcon className="h-3 w-3" />
+                    <span
+                      className="text-[10px] uppercase tracking-wide"
+                      style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+                    >
+                      Countdown
+                    </span>
+                    <span
+                      className="text-[13px] tabular-nums"
+                      style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+                    >
+                      {countdownDisplay}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Increment selector */}
@@ -960,8 +1142,9 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                     key={cents}
                     type="button"
                     onClick={() => setSelectedIncrement(cents)}
+                    disabled={!isAuctionLive}
                     className={[
-                      "rounded-[5px] py-1.5 text-[11px] transition-colors",
+                      "rounded-[5px] py-1.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                       selectedIncrement === cents
                         ? "bg-black text-white"
                         : "border border-[#e5e5e5] text-black hover:border-black",
@@ -982,7 +1165,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                 onClick={handleSell}
                 disabled={
                   isActing ||
-                  isAuctionEnded ||
+                  !isAuctionLive ||
                   currentLotIsTerminal ||
                   currentBidCents == null
                 }
@@ -997,7 +1180,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                 <button
                   type="button"
                   onClick={handlePass}
-                  disabled={isActing || isAuctionEnded || currentLotIsTerminal}
+                  disabled={controlsDisabled || currentLotIsTerminal}
                   className="flex-1 rounded-[6px] border border-[#e5e5e5] py-2.5 text-[11px] uppercase tracking-widest text-black/60 transition-colors hover:border-black hover:text-black disabled:opacity-40"
                   style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
                 >
@@ -1006,7 +1189,7 @@ export function ConsoleView({ auction, lots, sellerName }: Props) {
                 <button
                   type="button"
                   onClick={handleNextLot}
-                  disabled={isActing || isAuctionEnded || !nextLot}
+                  disabled={controlsDisabled || !nextLot}
                   className="flex-1 rounded-[6px] bg-black py-2.5 text-[11px] uppercase tracking-widest text-white transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
                 >

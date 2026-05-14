@@ -239,6 +239,29 @@ export function LiveAuctionView({ tenant, auction, lots }: Props) {
     };
   }, [auction.id]);
 
+  useEffect(() => {
+    if (!user || !session?.access_token) return;
+
+    const supabase = createClient();
+    const channel = supabase.channel(`live:presence:auction:${auction.id}`, {
+      config: { presence: { key: user.id } },
+    });
+
+    channel.subscribe((status) => {
+      if (status !== "SUBSCRIBED") return;
+      void channel.track({
+        user_id: user.id,
+        role: "buyer",
+        online_at: new Date().toISOString(),
+      });
+    });
+
+    return () => {
+      void channel.untrack();
+      void supabase.removeChannel(channel);
+    };
+  }, [auction.id, session?.access_token, user]);
+
   const liveLots = useMemo(
     () =>
       lots.map((lot) => ({

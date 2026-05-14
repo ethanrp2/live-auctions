@@ -10,6 +10,7 @@ import {
   Track,
   createLocalAudioTrack,
   type LocalAudioTrack,
+  type LocalTrackPublication,
 } from "livekit-client";
 import { createClient } from "@/lib/supabase/client";
 
@@ -82,22 +83,23 @@ export function LiveKitPublisher({ auctionId }: Props) {
 
   const roomRef = useRef<Room | null>(null);
   const audioTrackRef = useRef<LocalAudioTrack | null>(null);
+  const audioPublicationRef = useRef<LocalTrackPublication | null>(null);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       void stopBroadcast();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function stopBroadcast() {
+    audioPublicationRef.current = null;
     if (audioTrackRef.current) {
       audioTrackRef.current.stop();
       audioTrackRef.current = null;
     }
     if (roomRef.current) {
-      await roomRef.current.disconnect();
+      await roomRef.current.disconnect(true);
       roomRef.current = null;
     }
   }
@@ -127,7 +129,7 @@ export function LiveKitPublisher({ auctionId }: Props) {
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
 
-      const { token, roomName, livekitUrl } = (await res.json()) as {
+      const { token, livekitUrl } = (await res.json()) as {
         token: string;
         roomName: string;
         livekitUrl: string;
@@ -150,6 +152,8 @@ export function LiveKitPublisher({ auctionId }: Props) {
       roomRef.current = room;
 
       room.on(RoomEvent.Disconnected, () => {
+        audioPublicationRef.current = null;
+        audioTrackRef.current = null;
         setState("idle");
       });
 
@@ -158,9 +162,10 @@ export function LiveKitPublisher({ auctionId }: Props) {
       });
 
       // 4. Publish the audio track
-      await room.localParticipant.publishTrack(audioTrack, {
+      const publication = await room.localParticipant.publishTrack(audioTrack, {
         source: Track.Source.Microphone,
       });
+      audioPublicationRef.current = publication;
 
       setState("live");
     } catch (err) {
@@ -184,12 +189,13 @@ export function LiveKitPublisher({ auctionId }: Props) {
   }, [auctionId]);
 
   const toggleMute = useCallback(async () => {
-    if (!audioTrackRef.current || !roomRef.current) return;
+    const publication = audioPublicationRef.current;
+    if (!publication || !roomRef.current) return;
     if (state === "live") {
-      await audioTrackRef.current.mute();
+      await publication.mute();
       setState("muted");
     } else if (state === "muted") {
-      await audioTrackRef.current.unmute();
+      await publication.unmute();
       setState("live");
     }
   }, [state]);

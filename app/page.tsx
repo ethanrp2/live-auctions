@@ -7,7 +7,15 @@ import { getSellerRedirectPathForUser } from "@/lib/seller-redirect";
 import { StorefrontHome } from "@/components/storefront/storefront-home";
 import { PlatformHome } from "@/components/platform-home";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ public?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const forcePublic =
+    params.public === "1" ||
+    (Array.isArray(params.public) && params.public[0] === "1");
   const headersList = await headers();
   const tenantSlug = headersList.get("x-tenant-slug");
 
@@ -19,7 +27,7 @@ export default async function Home() {
   if (tenantSlug) {
     const tenant = await getTenantBySlug(supabase, tenantSlug);
     if (tenant) {
-      if (user) {
+      if (user && !forcePublic) {
         const sellerRedirectPath = await getSellerTenantRedirectPath({
           tenantId: tenant.id,
           userId: user.id,
@@ -28,11 +36,13 @@ export default async function Home() {
           redirect(sellerRedirectPath);
         }
       }
-      return <StorefrontHome tenant={tenant} user={user} />;
+      return (
+        <StorefrontHome tenant={tenant} user={user} forcePublic={forcePublic} />
+      );
     }
   }
 
-  if (user) {
+  if (user && !forcePublic) {
     const sellerRedirectPath = await getSellerRedirectPathForUser({
       supabase,
       userId: user.id,

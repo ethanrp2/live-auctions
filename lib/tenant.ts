@@ -12,19 +12,10 @@ export interface Tenant {
   font_mono: string;
 }
 
-const cache = new Map<string, { tenant: Tenant; expiresAt: number }>();
-const CACHE_TTL_MS = 60_000; // 1 minute
-
 export async function getTenantBySlug(
   supabase: SupabaseClient,
   slug: string
 ): Promise<Tenant | null> {
-  const now = Date.now();
-  const cached = cache.get(slug);
-  if (cached && cached.expiresAt > now) {
-    return cached.tenant;
-  }
-
   const { data, error } = await supabase
     .from("tenants")
     .select(
@@ -37,7 +28,5 @@ export async function getTenantBySlug(
     return null;
   }
 
-  const tenant: Tenant = data;
-  cache.set(slug, { tenant, expiresAt: now + CACHE_TTL_MS });
-  return tenant;
+  return data as Tenant;
 }

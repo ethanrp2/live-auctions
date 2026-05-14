@@ -4,6 +4,7 @@ import { lotSellerRoutes } from "./lots.js";
 import { sellerImageRoutes } from "./images.js";
 import { sellerPublishRoutes } from "./publish.js";
 import { sellerSmsRoutes } from "./sms.js";
+import { sellerTenantRoutes } from "./tenant.js";
 
 export async function sellerRoutes(fastify: FastifyInstance) {
   await fastify.register(async (seller) => {
@@ -12,5 +13,6 @@ export async function sellerRoutes(fastify: FastifyInstance) {
     await seller.register(sellerImageRoutes);
     await seller.register(sellerPublishRoutes);
     await seller.register(sellerSmsRoutes);
+    await seller.register(sellerTenantRoutes);
   }, { prefix: "/api/seller" });
 }

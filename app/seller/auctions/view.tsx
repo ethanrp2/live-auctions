@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { BastaLogo } from "@/components/storefront/basta-logo";
+import { ModalOverlay } from "@/components/storefront/modal-overlay";
 import { createClient } from "@/lib/supabase/client";
 import { requestRootSession } from "@/lib/supabase/session-bridge";
 
@@ -24,6 +26,7 @@ export interface SellerHouseSummary {
   name: string;
   description: string | null;
   logoUrl: string | null;
+  heroImageUrl: string | null;
   primaryColor: string;
   auctionCount: number;
   activeAuctionCount: number;
@@ -36,6 +39,8 @@ interface Props {
   sellerName: string;
   houses: SellerHouseSummary[];
   selectedHouseSlug: string | null;
+  storefrontAuctionId: string | null;
+  requestHost: string;
 }
 
 function formatScheduledDate(iso: string | null): string {
@@ -77,24 +82,46 @@ function pluralize(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? "" : "S"}`;
 }
 
-function sellerHouseUrl(slug: string): string {
-  if (typeof window === "undefined") return `/${slug}`;
-
-  const { protocol, hostname, port } = window.location;
-  const hostParts = hostname.split(".");
-  const rootHost =
-    hostname === "localhost" || hostname.endsWith(".localhost")
-      ? "localhost"
-      : hostParts.length > 2
-        ? hostParts.slice(1).join(".")
-        : hostname;
-  const portSuffix = port ? `:${port}` : "";
-
-  return `${protocol}//${slug}.${rootHost}${portSuffix}`;
+function normalizeHexColor(value: string): string {
+  const next = value.trim().toUpperCase();
+  if (/^#[0-9A-F]{6}$/.test(next)) return next;
+  return "#000000";
 }
 
-function sellerManagerUrl(slug: string): string {
-  return `${sellerHouseUrl(slug)}/seller/auctions`;
+function isValidHexColor(value: string): boolean {
+  return /^#[0-9A-F]{6}$/.test(value.trim().toUpperCase());
+}
+
+function getRootHost(host: string): string {
+  const hostname = host.split(":")[0];
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    return "localhost";
+  }
+
+  const parts = hostname.split(".");
+  return parts.length > 2 ? parts.slice(1).join(".") : hostname;
+}
+
+function sellerHouseUrl(slug: string, host: string): string {
+  const protocol =
+    process.env.NEXT_PUBLIC_ROOT_DOMAIN === "localhost" ? "http" : "https";
+  const port = host.includes(":") ? `:${host.split(":")[1]}` : "";
+  return `${protocol}://${slug}.${getRootHost(host)}${port}`;
+}
+
+function sellerStorefrontUrl(slug: string, host: string): string {
+  return `${sellerHouseUrl(slug, host)}?public=1`;
+}
+
+function sellerManagerUrl(slug: string, host: string): string {
+  return `${sellerHouseUrl(slug, host)}/seller/auctions`;
+}
+
+function sellerRootDashboardUrl(host: string): string {
+  const protocol =
+    process.env.NEXT_PUBLIC_ROOT_DOMAIN === "localhost" ? "http" : "https";
+  const port = host.includes(":") ? `:${host.split(":")[1]}` : "";
+  return `${protocol}://${getRootHost(host)}${port}/seller/auctions`;
 }
 
 function withLocalSessionHash(url: string, session: {
@@ -112,12 +139,355 @@ function withLocalSessionHash(url: string, session: {
   )}`;
 }
 
+function BrandImageField({
+  label,
+  imageUrl,
+  hint,
+  inputId,
+  onFileChange,
+}: {
+  label: string;
+  imageUrl: string | null;
+  hint: string;
+  inputId: string;
+  onFileChange: (file: File | null) => void;
+}) {
+  return (
+    <div className="rounded-[4px] border border-[#f3f3f3] bg-[#fafafa] p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p
+            className="text-[11px] uppercase tracking-widest text-black/60"
+            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+          >
+            {label}
+          </p>
+          <p
+            className="mt-1 text-[11px] text-black/40"
+            style={{ fontFamily: "var(--font-inter)" }}
+          >
+            {hint}
+          </p>
+        </div>
+        <label
+          htmlFor={inputId}
+          className="inline-flex h-[34px] cursor-pointer items-center rounded-[4px] border border-[#e5e5e5] px-3 text-[10px] uppercase tracking-widest text-black/60 transition-colors hover:border-black hover:text-black"
+          style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+        >
+          Upload
+        </label>
+      </div>
+
+      <div className="overflow-hidden rounded-[4px] border border-[#f3f3f3] bg-white">
+        {imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt=""
+            className="h-[132px] w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-[132px] items-center justify-center text-[11px] uppercase tracking-widest text-black/30">
+            No image selected
+          </div>
+        )}
+      </div>
+
+      <input
+        id={inputId}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="sr-only"
+        onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+      />
+    </div>
+  );
+}
+
+function HouseBrandingModal({
+  isOpen,
+  house,
+  onClose,
+  onSave,
+}: {
+  isOpen: boolean;
+  house: SellerHouseSummary;
+  onClose: () => void;
+  onSave: (nextHouse: SellerHouseSummary) => void;
+}) {
+  const supabase = useMemo(() => createClient(), []);
+  const [draftColor, setDraftColor] = useState(house.primaryColor);
+  const [draftLogoUrl, setDraftLogoUrl] = useState<string | null>(house.logoUrl);
+  const [draftHeroUrl, setDraftHeroUrl] = useState<string | null>(house.heroImageUrl);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [heroFile, setHeroFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setDraftColor(house.primaryColor);
+    setDraftLogoUrl(house.logoUrl);
+    setDraftHeroUrl(house.heroImageUrl);
+    setLogoFile(null);
+    setHeroFile(null);
+    setError(null);
+  }, [house, isOpen]);
+
+  async function getToken(): Promise<string> {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error("Not authenticated");
+    return token;
+  }
+
+  async function uploadBrandImage(
+    kind: "logo" | "hero",
+    file: File
+  ): Promise<string> {
+    const token = await getToken();
+    const signedUploadRes = await fetch(
+      `${BACKEND_URL}/api/seller/tenant/branding/signed-upload`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type,
+          kind,
+        }),
+      }
+    );
+    const signedUploadData = (await signedUploadRes.json().catch(() => ({}))) as {
+      error?: string;
+      path?: string;
+      token?: string;
+      publicUrl?: string;
+    };
+    if (!signedUploadRes.ok || !signedUploadData.path || !signedUploadData.token || !signedUploadData.publicUrl) {
+      throw new Error(signedUploadData.error ?? "Failed to prepare image upload");
+    }
+
+    const { error: uploadError } = await supabase.storage
+      .from("lot-images")
+      .uploadToSignedUrl(signedUploadData.path, signedUploadData.token, file);
+    if (uploadError) {
+      throw new Error(uploadError.message || "Failed to upload image");
+    }
+
+    return signedUploadData.publicUrl;
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    try {
+      if (!isValidHexColor(draftColor)) {
+        throw new Error("Accent color must be a 6-digit hex value");
+      }
+      const nextColor = normalizeHexColor(draftColor);
+      const [nextLogoUrl, nextHeroUrl] = await Promise.all([
+        logoFile ? uploadBrandImage("logo", logoFile) : Promise.resolve(draftLogoUrl),
+        heroFile ? uploadBrandImage("hero", heroFile) : Promise.resolve(draftHeroUrl),
+      ]);
+
+      const token = await getToken();
+      const res = await fetch(`${BACKEND_URL}/api/seller/tenant/branding`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          logo_url: nextLogoUrl ?? undefined,
+          hero_image_url: nextHeroUrl ?? undefined,
+          primary_color: nextColor,
+        }),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        tenant?: {
+          logo_url: string | null;
+          hero_image_url: string | null;
+          brand_colors: Record<string, string> | null;
+        };
+      };
+
+      if (!res.ok || !data.tenant) {
+        throw new Error(data.error ?? "Failed to save house branding");
+      }
+
+      onSave({
+        ...house,
+        logoUrl: data.tenant.logo_url,
+        heroImageUrl: data.tenant.hero_image_url,
+        primaryColor: data.tenant.brand_colors?.primary ?? nextColor,
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save house branding");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ModalOverlay
+      isOpen={isOpen}
+      onClose={() => {
+        if (!saving) onClose();
+      }}
+      variant="centered"
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+        <div>
+          <p
+            className="text-[11px] uppercase tracking-widest text-black/40"
+            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+          >
+            HOUSE CUSTOMIZATION
+          </p>
+          <h2
+            className="mt-2 text-[26px] leading-none text-black"
+            style={{ fontFamily: "var(--font-ivypresto, var(--font-inter))" }}
+          >
+            {house.name}
+          </h2>
+        </div>
+
+        {error ? (
+          <div className="rounded-[4px] border border-[#ff0004]/30 bg-[#ff0004]/5 px-3 py-2 text-[11px] text-[#ff0004]">
+            {error}
+          </div>
+        ) : null}
+
+        <div
+          className="overflow-hidden rounded-[4px] border border-[#f3f3f3]"
+          style={{ backgroundColor: draftColor }}
+        >
+          <div className="flex items-center justify-between px-4 py-3">
+            <span
+              className="text-[10px] uppercase tracking-widest"
+              style={{ fontFamily: "var(--font-ibm-plex-mono)", color: "#FFFFFF" }}
+            >
+              STOREFRONT PREVIEW
+            </span>
+            {draftLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={draftLogoUrl} alt="" className="h-4 w-auto object-contain" />
+            ) : (
+              <span className="text-white">
+                <BastaLogo className="h-3 w-[45px]" />
+              </span>
+            )}
+          </div>
+          <div className="border-t border-white/15 bg-black/10 px-4 py-3">
+            <p
+              className="text-[18px] text-white"
+              style={{ fontFamily: "var(--font-ivypresto, var(--font-inter))" }}
+            >
+              Landing page branding updates the moment you save.
+            </p>
+          </div>
+        </div>
+
+        <BrandImageField
+          label="House Logo"
+          imageUrl={draftLogoUrl}
+          hint="Appears on the BASA subdomain storefront."
+          inputId="house-logo-upload"
+          onFileChange={(file) => {
+            setLogoFile(file);
+            if (file) {
+              setDraftLogoUrl(URL.createObjectURL(file));
+            }
+          }}
+        />
+
+        <BrandImageField
+          label="Landing Page Photo"
+          imageUrl={draftHeroUrl}
+          hint="Used as the home page hero image for this house."
+          inputId="house-hero-upload"
+          onFileChange={(file) => {
+            setHeroFile(file);
+            if (file) {
+              setDraftHeroUrl(URL.createObjectURL(file));
+            }
+          }}
+        />
+
+        <div className="rounded-[4px] border border-[#f3f3f3] bg-[#fafafa] p-3">
+          <p
+            className="text-[11px] uppercase tracking-widest text-black/60"
+            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+          >
+            Accent Color
+          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <input
+              type="color"
+              value={normalizeHexColor(draftColor)}
+              onChange={(event) => setDraftColor(event.target.value.toUpperCase())}
+              className="h-12 w-16 cursor-pointer rounded-[4px] border border-[#e5e5e5] bg-transparent p-1"
+            />
+            <input
+              type="text"
+              value={draftColor}
+              onChange={(event) => setDraftColor(event.target.value)}
+              maxLength={7}
+              className="h-12 flex-1 rounded-[4px] border border-[#f3f3f3] bg-white px-3 text-[13px] uppercase text-black focus:border-black focus:outline-none"
+              style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+            />
+          </div>
+          <p
+            className="mt-2 text-[11px] text-black/40"
+            style={{ fontFamily: "var(--font-inter)" }}
+          >
+            Use a 6-digit hex value such as `#02BE50`.
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="h-[50px] flex-1 rounded-[4px] border border-[#e5e5e5] text-[12px] uppercase tracking-widest text-black/60 transition-colors hover:border-black hover:text-black disabled:opacity-40"
+            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="h-[50px] flex-1 rounded-[4px] bg-black text-[12px] uppercase tracking-widest text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+          >
+            {saving ? "SAVING…" : "SAVE CHANGES"}
+          </button>
+        </div>
+      </form>
+    </ModalOverlay>
+  );
+}
+
 function SellerHouseLanding({
   houses,
   fetchError,
+  requestHost,
 }: {
   houses: SellerHouseSummary[];
   fetchError: string | null;
+  requestHost: string;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const primaryHouse = houses[0] ?? null;
@@ -130,7 +500,9 @@ function SellerHouseLanding({
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    window.location.assign(withLocalSessionHash(sellerManagerUrl(slug), session));
+    window.location.assign(
+      withLocalSessionHash(sellerManagerUrl(slug, requestHost), session)
+    );
   }
 
   return (
@@ -240,7 +612,7 @@ function SellerHouseLanding({
 
                   <div className="mt-8 flex flex-col gap-3">
                     <a
-                      href={sellerManagerUrl(house.slug)}
+                      href={sellerManagerUrl(house.slug, requestHost)}
                       onClick={(event) => handleManageHouse(event, house.slug)}
                       className="flex h-[50px] items-center justify-center rounded-[4px] bg-black px-5 text-[12px] uppercase tracking-widest text-white transition-opacity hover:opacity-90"
                       style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
@@ -248,7 +620,7 @@ function SellerHouseLanding({
                       MANAGE HOUSE →
                     </a>
                     <a
-                      href={sellerHouseUrl(house.slug)}
+                      href={sellerStorefrontUrl(house.slug, requestHost)}
                       className="flex h-[50px] items-center justify-center rounded-[4px] border border-[#e5e5e5] px-5 text-[12px] uppercase tracking-widest text-black/60 transition-colors hover:border-black hover:text-black"
                       style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
                     >
@@ -271,18 +643,44 @@ export function AuctionsListView({
   sellerName,
   houses,
   selectedHouseSlug,
+  storefrontAuctionId,
+  requestHost,
 }: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const selectedHouse = houses.find((house) => house.slug === selectedHouseSlug) ?? null;
+  const [houseState, setHouseState] = useState<SellerHouseSummary | null>(selectedHouse);
 
   const [showCreate, setShowCreate] = useState(false);
+  const [showBrandingModal, setShowBrandingModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newScheduledDate, setNewScheduledDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingDisplayAuctionId, setPendingDisplayAuctionId] = useState<
+    string | null
+  >(null);
+  const [settingDisplayId, setSettingDisplayId] = useState<string | null>(null);
+  const [displayAuctionId, setDisplayAuctionId] = useState(storefrontAuctionId);
+
+  useEffect(() => {
+    setHouseState(selectedHouse);
+  }, [selectedHouse]);
+
+  useEffect(() => {
+    if (storefrontAuctionId && storefrontAuctionId !== displayAuctionId) {
+      setDisplayAuctionId(storefrontAuctionId);
+    }
+  }, [displayAuctionId, storefrontAuctionId]);
+
+  useEffect(() => {
+    if (pendingDisplayAuctionId && displayAuctionId === pendingDisplayAuctionId) {
+      setPendingDisplayAuctionId(null);
+      setSettingDisplayId(null);
+    }
+  }, [displayAuctionId, pendingDisplayAuctionId]);
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -291,6 +689,18 @@ export function AuctionsListView({
       requestRootSession("clear"),
     ]);
     window.location.replace("/");
+  }
+
+  async function handleBackToHouses(
+    event: React.MouseEvent<HTMLAnchorElement>
+  ) {
+    event.preventDefault();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    window.location.assign(
+      withLocalSessionHash(sellerRootDashboardUrl(requestHost), session)
+    );
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -338,14 +748,63 @@ export function AuctionsListView({
     }
   }
 
+  async function handleSetDisplayAuction(auctionId: string) {
+    if (displayAuctionId === auctionId || pendingDisplayAuctionId === auctionId) {
+      return;
+    }
+
+    setError(null);
+    setPendingDisplayAuctionId(auctionId);
+    setSettingDisplayId(auctionId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Not authenticated");
+
+      const res = await fetch(
+        `${BACKEND_URL}/api/seller/auctions/${auctionId}/storefront`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        storefrontAuctionId?: string | null;
+      };
+      if (!res.ok) {
+        throw new Error(
+          data.error ?? `Failed to update storefront auction (HTTP ${res.status})`
+        );
+      }
+      if (data.storefrontAuctionId !== auctionId) {
+        throw new Error("Storefront auction update did not persist");
+      }
+
+      setDisplayAuctionId(data.storefrontAuctionId);
+      router.refresh();
+    } catch (err) {
+      setPendingDisplayAuctionId(null);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update storefront auction"
+      );
+    } finally {
+      setSettingDisplayId(null);
+    }
+  }
+
   return (
     <div
       className="flex min-h-screen w-full flex-col bg-white"
       style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
     >
       {/* Top bar */}
-      <div className="flex h-[50px] shrink-0 items-center justify-between border-b border-[#f3f3f3] bg-black px-5">
-        <div className="flex items-center gap-3">
+      <div className="relative flex h-[50px] shrink-0 items-center justify-between border-b border-[#f3f3f3] bg-black px-5">
+        <div className="flex items-center gap-3 pr-16">
           <span
             className="text-[11px] uppercase tracking-widest text-white/50"
             style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
@@ -360,8 +819,17 @@ export function AuctionsListView({
             {sellerName}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          {selectedHouse ? (
+        {houseState ? (
+          <Link
+            href={sellerStorefrontUrl(houseState.slug, requestHost)}
+            className="absolute left-1/2 -translate-x-1/2 text-white transition-opacity hover:opacity-80"
+            aria-label={`Go to ${houseState.name} homepage`}
+          >
+            <BastaLogo className="h-3 w-[45px]" />
+          </Link>
+        ) : null}
+        <div className="flex items-center gap-2 pl-16">
+          {houseState ? (
             <button
               type="button"
               onClick={() => setShowCreate(true)}
@@ -384,14 +852,23 @@ export function AuctionsListView({
       </div>
 
       {/* Body */}
-      {!selectedHouse ? (
-        <SellerHouseLanding houses={houses} fetchError={fetchError} />
+        {!houseState ? (
+        <SellerHouseLanding
+          houses={houses}
+          fetchError={fetchError}
+          requestHost={requestHost}
+        />
       ) : (
         <div className="mx-auto w-full max-w-5xl px-6 py-10">
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <Link
-                href="/seller/auctions"
+                href={
+                  houseState
+                    ? sellerRootDashboardUrl(requestHost)
+                    : "/seller/auctions"
+                }
+                onClick={handleBackToHouses}
                 className="mb-3 inline-flex text-[11px] uppercase tracking-widest text-black/40 transition-colors hover:text-black"
                 style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
               >
@@ -401,15 +878,51 @@ export function AuctionsListView({
                 className="text-[14px] uppercase tracking-widest text-black"
                 style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
               >
-                {selectedHouse.name} AUCTIONS
+                {houseState.name} AUCTIONS
               </h1>
             </div>
-            <span
-              className="text-[11px] uppercase tracking-widest text-black/40"
-              style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
-            >
-              {auctions.length} TOTAL
-            </span>
+            <div className="flex flex-col items-start gap-3 md:items-end">
+              <div className="flex flex-wrap items-center gap-3 rounded-[4px] border border-[#f3f3f3] bg-[#fafafa] px-3 py-2">
+                {houseState.logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={houseState.logoUrl}
+                    alt=""
+                    className="h-7 w-7 rounded-[4px] object-cover"
+                  />
+                ) : (
+                  <div className="flex h-7 w-7 items-center justify-center rounded-[4px] border border-[#e5e5e5] bg-white text-black">
+                    <BastaLogo className="h-[8px] w-[30px]" />
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <div
+                    className="h-4 w-4 rounded-full border border-black/10"
+                    style={{ backgroundColor: houseState.primaryColor }}
+                  />
+                  <span
+                    className="text-[10px] uppercase tracking-widest text-black/40"
+                    style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+                  >
+                    LIVE BRANDING
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBrandingModal(true)}
+                  className="h-[34px] rounded-[4px] border border-[#e5e5e5] bg-white px-4 text-[10px] uppercase tracking-widest text-black/60 transition-colors hover:border-black hover:text-black"
+                  style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+                >
+                  CUSTOMIZE HOUSE
+                </button>
+              </div>
+              <span
+                className="text-[11px] uppercase tracking-widest text-black/40"
+                style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+              >
+                {auctions.length} TOTAL
+              </span>
+            </div>
           </div>
 
         {fetchError && (
@@ -445,21 +958,27 @@ export function AuctionsListView({
           <div className="overflow-hidden rounded-[4px] border border-[#f3f3f3]">
             {/* Header row */}
             <div
-              className="grid grid-cols-[2fr_1.4fr_0.8fr_0.6fr_120px] gap-4 border-b border-[#f3f3f3] bg-[#fafafa] px-5 py-3 text-[10px] uppercase tracking-widest text-black/40"
+              className="grid grid-cols-[1.8fr_1.25fr_0.7fr_0.45fr_150px_100px] gap-4 border-b border-[#f3f3f3] bg-[#fafafa] px-5 py-3 text-[10px] uppercase tracking-widest text-black/40"
               style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
             >
               <span>TITLE</span>
               <span>SCHEDULED</span>
               <span>STATUS</span>
               <span>LOTS</span>
+              <span>HOUSE PAGE</span>
               <span className="text-right">MANAGE</span>
             </div>
 
-            {auctions.map((a) => (
-              <Link
+            {auctions.map((a) => {
+              const isDisplayed =
+                pendingDisplayAuctionId === a.id || displayAuctionId === a.id;
+              const isPersistedDisplayed = displayAuctionId === a.id;
+              const isSettingDisplay = settingDisplayId === a.id;
+
+              return (
+              <div
                 key={a.id}
-                href={`/seller/auctions/${a.id}`}
-                className="grid grid-cols-[2fr_1.4fr_0.8fr_0.6fr_120px] items-center gap-4 border-b border-[#f3f3f3] px-5 py-4 transition-colors last:border-b-0 hover:bg-[#fafafa]"
+                className="grid grid-cols-[1.8fr_1.25fr_0.7fr_0.45fr_150px_100px] items-center gap-4 border-b border-[#f3f3f3] px-5 py-4 transition-colors last:border-b-0 hover:bg-[#fafafa]"
               >
                 <div className="min-w-0">
                   <p
@@ -489,23 +1008,57 @@ export function AuctionsListView({
                 >
                   {a.lotCount}
                 </div>
+                <div>
+                  {isDisplayed ? (
+                    <span
+                      className="inline-flex rounded-[3px] bg-black px-2 py-1 text-[10px] uppercase tracking-widest text-white"
+                      style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+                    >
+                      {isPersistedDisplayed ? "DISPLAYED" : "DISPLAYING..."}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSetDisplayAuction(a.id)}
+                      disabled={settingDisplayId !== null}
+                      className="rounded-[4px] border border-[#e5e5e5] px-2 py-1 text-[10px] uppercase tracking-widest text-black/55 transition-colors hover:border-black hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
+                    >
+                      {isSettingDisplay ? "SETTING..." : "DISPLAY"}
+                    </button>
+                  )}
+                </div>
                 <div className="flex justify-end">
-                  <span
+                  <Link
+                    href={`/seller/auctions/${a.id}`}
                     className="text-[11px] uppercase tracking-widest text-black"
                     style={{ fontFamily: "var(--font-ibm-plex-mono)" }}
                   >
                     MANAGE →
-                  </span>
+                  </Link>
                 </div>
-              </Link>
-            ))}
+              </div>
+              );
+            })}
           </div>
         )}
       </div>
       )}
 
+      {houseState ? (
+        <HouseBrandingModal
+          isOpen={showBrandingModal}
+          house={houseState}
+          onClose={() => setShowBrandingModal(false)}
+          onSave={(nextHouse) => {
+            setHouseState(nextHouse);
+            router.refresh();
+          }}
+        />
+      ) : null}
+
       {/* Create modal */}
-      {selectedHouse && showCreate && (
+      {houseState && showCreate && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
           onClick={() => !submitting && setShowCreate(false)}
