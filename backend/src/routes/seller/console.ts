@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { requireSeller, requireAuctionOwnership } from "../../lib/auth.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { notifyWinner } from "../../lib/sms-triggers.js";
+import { setTenantStorefrontAuctionId } from "../../lib/storefront-auction.js";
 
 const auctionParamSchema = {
   type: "object",
@@ -123,6 +124,17 @@ export async function consoleSellerRoutes(fastify: FastifyInstance) {
       if (auctionError) {
         request.log.error({ err: auctionError }, "Failed to update current lot");
         return reply.status(500).send({ error: "Failed to update current lot" });
+      }
+
+      const storefrontSelection = await setTenantStorefrontAuctionId(
+        seller.tenantId,
+        auction.id
+      );
+      if (storefrontSelection.error) {
+        request.log.warn(
+          { err: storefrontSelection.error },
+          "Failed to point storefront at newly live auction"
+        );
       }
 
       const { error: resetLotsError } = await supabaseAdmin

@@ -83,10 +83,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase]);
 
   const getLocalSession = useCallback(async () => {
-    const {
-      data: { session: localSession },
-    } = await supabase.auth.getSession();
-    return localSession;
+    try {
+      const {
+        data: { session: localSession },
+        error,
+      } = await supabase.auth.getSession();
+      if (error) {
+        if (!isRecoverableSessionAuthError(error)) {
+          console.warn("Failed to get local session", error);
+        }
+        await supabase.auth.signOut({ scope: "local" });
+        return null;
+      }
+      return localSession;
+    } catch (error) {
+      if (!isRecoverableSessionAuthError(error)) {
+        console.warn("Failed to get local session", error);
+      }
+      await supabase.auth.signOut({ scope: "local" });
+      return null;
+    }
   }, [supabase]);
 
   const syncFromPlatformRoot = useCallback(async () => {
